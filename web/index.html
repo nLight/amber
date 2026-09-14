@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amber</title>
+<style>
+  :root {
+    --bg: #0d0a05;
+    --panel: #15100a;
+    --line: #3a2a12;
+    --amber: #ffb000;
+    --amber-dim: #b27b00;
+    --amber-faint: #5c4000;
+    --text: #ffd27a;
+    --red: #ff5f3a;
+    --green: #c8ff6a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 var(--mono);
+    background-image: repeating-linear-gradient(0deg, rgba(255,176,0,.025) 0 1px, transparent 1px 3px);
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+  a { color: var(--amber); }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: #0a0804;
+  }
+  .logo { font-weight: 700; letter-spacing: .3em; color: var(--amber); text-shadow: 0 0 8px rgba(255,176,0,.5); }
+  .logo .cursor { display: inline-block; width: .6em; height: 1em; background: var(--amber); vertical-align: -2px; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .chip { border: 1px solid var(--line); padding: 1px 8px; color: var(--amber-dim); white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.bad { border-color: var(--red); color: var(--red); }
+  .chip.bad b { color: var(--red); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 16px; padding: 16px; height: calc(100% - 50px); }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; height: auto; } }
+
+  .box { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  .box > .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .box > .bar .title { color: var(--amber); letter-spacing: .15em; }
+  .spacer { flex: 1; }
+
+  button {
+    background: transparent; border: 1px solid var(--amber-dim); color: var(--amber);
+    padding: 3px 10px; cursor: pointer; letter-spacing: .05em;
+  }
+  button:hover { background: var(--amber); color: var(--bg); }
+  button.primary { background: var(--amber); color: var(--bg); font-weight: 700; }
+  button.primary:hover { box-shadow: 0 0 12px rgba(255,176,0,.6); }
+  button:disabled { opacity: .4; cursor: wait; }
+  button.tab { border-color: transparent; color: var(--amber-dim); }
+  button.tab.on { border-color: var(--amber-dim); color: var(--amber); }
+  kbd { color: var(--amber-faint); font-size: 11px; }
+
+  .editor { position: relative; flex: 1; min-height: 420px; display: flex; }
+  .gutter { background: #0a0804; padding: 10px 8px 10px 0; text-align: right; color: var(--amber-faint); user-select: none; overflow: hidden; min-width: 44px; white-space: pre; }
+  textarea {
+    flex: 1; resize: none; border: 0; outline: 0; background: #0a0804; color: var(--text); padding: 10px 12px 10px 4px;
+    white-space: pre; overflow: auto; tab-size: 2; caret-color: var(--amber); line-height: 1.5;
+  }
+  textarea::selection { background: var(--amber-faint); }
+  .status { padding: 6px 10px; border-top: 1px solid var(--line); min-height: 32px; color: var(--amber-dim); white-space: pre-wrap; word-break: break-word; }
+  .status.err { color: var(--red); }
+  .status.ok { color: var(--green); }
+
+  .screen { flex: 1; display: grid; place-items: center; padding: 18px; min-height: 0; }
+  .bezel {
+    background: #1c1a17; padding: 26px 22px 46px; border-radius: 18px; width: 100%; max-width: 420px;
+    box-shadow: inset 0 0 0 1px #2c2924, 0 20px 60px rgba(0,0,0,.6);
+  }
+  .bezel img { display: block; width: 100%; aspect-ratio: 600 / 800; background: #e9e6df; image-rendering: auto; filter: contrast(1.02); }
+  .bezel .brand { text-align: center; color: #57524a; font-size: 10px; letter-spacing: .4em; margin-top: 14px; }
+  .loading { opacity: .55; transition: opacity .2s; }
+
+  details.ref { border-top: 1px solid var(--line); }
+  details.ref summary { padding: 6px 10px; cursor: pointer; color: var(--amber-dim); }
+  details.ref pre { margin: 0; padding: 0 12px 12px; color: var(--text); white-space: pre-wrap; font-size: 12px; max-height: 40vh; overflow: auto; }
+
+  [hidden] { display: none !important; }
+  .login { position: fixed; inset: 0; background: rgba(13,10,5,.96); display: grid; place-items: center; z-index: 10; }
+  .login form { border: 1px solid var(--amber-dim); padding: 28px 32px; width: min(360px, calc(100% - 32px)); background: var(--panel); }
+  .login h1 { margin: 0 0 4px; font-size: 16px; color: var(--amber); letter-spacing: .3em; }
+  .login p { margin: 0 0 18px; color: var(--amber-dim); }
+  .login input { width: 100%; background: #0a0804; border: 1px solid var(--line); padding: 10px; font-size: 28px; letter-spacing: .6em; text-align: center; color: var(--amber); outline: 0; }
+  .login input:focus { border-color: var(--amber); }
+  .login .row { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .login .msg { color: var(--red); min-height: 1.5em; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="login" id="login" hidden>
+  <form id="loginForm">
+    <h1>AMBER</h1>
+    <p>Enter the PIN shown at the bottom of the Kindle screen.</p>
+    <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="8" autofocus>
+    <div class="row"><span class="spacer"></span><button class="primary" type="submit">UNLOCK</button></div>
+    <div class="msg" id="loginMsg"></div>
+  </form>
+</div>
+
+<header>
+  <div class="logo">AMBER<span class="cursor"></span></div>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main>
+  <section class="box">
+    <div class="bar">
+      <span class="title">amber.json</span>
+      <span class="spacer"></span>
+      <button id="formatBtn" title="Pretty-print the JSON">FORMAT</button>
+      <button id="previewBtn" title="Render without saving">PREVIEW <kbd>⌘↵</kbd></button>
+      <button id="saveBtn" class="primary" title="Save to the Kindle and redraw">SAVE &amp; APPLY <kbd>⌘S</kbd></button>
+    </div>
+    <div class="editor">
+      <div class="gutter" id="gutter">1</div>
+      <textarea id="config" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    </div>
+    <div class="status" id="status">loading…</div>
+    <details class="ref">
+      <summary>widget reference</summary>
+<pre>rows[]            {height, title?, meta?, meta_query?, cells[]}
+                  with a title: one framed panel; without: every cell is its own card
+widget            {type, title, span?, style?, query?, series?, format?, cache_minutes?}
+
+stat              query → one row: value, previous?, series[]?
+                  series → rows (day, value); days without rows are filled with 0
+                  no query → value/previous = sums of the series' second/first half
+                  style: tile (card default) | inline (panel default) | readout
+                  lower_is_better: true flips the arrow colours
+chart             query → rows (label, a, b?)
+                  style: area_line (a as area, b as line) | columns (a as bars)
+                  label_every, highlight_last, points
+bars              query → rows (label, value) or (label, value, previous)
+segments          query → rows (label, value) or one row with named columns
+stack             items[] stacked vertically, span = relative height
+
+format            count | decimal1 | decimal2 | money | percent
+cache_minutes     reuse a result this long (daily warehouse data: 60+)
+placeholders      {timezone}
+screen            600 × 800; rows fit in 700 px including 8 px gaps</pre>
+    </details>
+  </section>
+
+  <section class="box">
+    <div class="bar">
+      <button class="tab on" data-tab="live">LIVE SCREEN</button>
+      <button class="tab" data-tab="preview">PREVIEW</button>
+      <span class="spacer"></span>
+      <button id="syncBtn" title="Query PostHog now">SYNC NOW</button>
+    </div>
+    <div class="screen">
+      <div class="bezel">
+        <img id="shot" alt="Kindle screen">
+        <div class="brand">KINDLE</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ta = $("config"), gutter = $("gutter"), status = $("status"), shot = $("shot");
+let tab = "live", previewURL = null, dirty = false;
+
+function say(text, kind = "") { status.textContent = text; status.className = "status " + kind; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { credentials: "same-origin", ...opts });
+  if (res.status === 401) { showLogin(); throw new Error("login required"); }
+  return res;
+}
+
+function showLogin() { $("login").hidden = false; $("pin").focus(); }
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("loginMsg").textContent = "";
+  const res = await fetch("/api/login", { method: "POST", body: JSON.stringify({ pin: $("pin").value }) });
+  if (!res.ok) { $("loginMsg").textContent = (await res.json()).error; $("pin").select(); return; }
+  $("login").hidden = true;
+  load();
+});
+
+function lines() {
+  const n = ta.value.split("\n").length;
+  gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n");
+  gutter.scrollTop = ta.scrollTop;
+}
+ta.addEventListener("input", () => { dirty = true; lines(); validate(); });
+ta.addEventListener("scroll", () => { gutter.scrollTop = ta.scrollTop; });
+ta.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const s = ta.selectionStart;
+    ta.setRangeText("  ", s, ta.selectionEnd, "end");
+    lines();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); preview(); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+});
+
+function validate() {
+  try { JSON.parse(ta.value); say(dirty ? "unsaved changes" : "in sync with the Kindle"); return true; }
+  catch (err) {
+    const m = /position (\d+)/.exec(err.message);
+    const line = m ? ta.value.slice(0, +m[1]).split("\n").length : "?";
+    say(`JSON syntax error on line ${line}: ${err.message}`, "err");
+    return false;
+  }
+}
+
+function chips(state) {
+  const s = state.stats, at = s.at ? new Date(s.at) : null;
+  const items = [
+    ["sync", at && at.getFullYear() > 2000 ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"],
+    ["queries", `${s.ran}${s.cached ? " +" + s.cached + " cached" : ""}`],
+    ["took", (s.took_ms / 1000).toFixed(1) + "s"],
+  ];
+  if (state.battery) items.push(["battery", state.battery + "%"]);
+  if (state.demo) items.push(["mode", "demo"]);
+  $("chips").innerHTML = items.map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("")
+    + (s.failed ? `<span class="chip bad" title="${escapeHTML(s.last_error)}">failed <b>${s.failed}</b></span>` : "");
+}
+const escapeHTML = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function load() {
+  const state = await (await api("/api/state")).json();
+  if (!dirty) { ta.value = state.config; lines(); validate(); }
+  chips(state);
+  if (tab === "live") refreshShot();
+}
+
+function refreshShot() { shot.src = "/api/screen.png?t=" + Date.now(); }
+
+async function busy(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } catch (err) { if (err.message !== "login required") say(err.message, "err"); }
+  finally { btn.disabled = false; }
+}
+
+async function preview() {
+  if (!validate()) return;
+  await busy($("previewBtn"), async () => {
+    say("rendering preview… (queries PostHog, a few seconds on the Kindle)");
+    shot.classList.add("loading");
+    const res = await api("/api/preview", { method: "POST", body: ta.value });
+    shot.classList.remove("loading");
+    if (!res.ok) { say((await res.json()).error, "err"); return; }
+    if (previewURL) URL.revokeObjectURL(previewURL);
+    previewURL = URL.createObjectURL(await res.blob());
+    setTab("preview");
+    const failed = +res.headers.get("X-Amber-Failed");
+    failed ? say(`preview rendered, ${failed} queries failed: ${res.headers.get("X-Amber-Error")}`, "err")
+           : say("preview rendered — not saved yet", "ok");
+  });
+}
+
+async function save() {
+  if (!validate()) return;
+  await busy($("saveBtn"), async () => {
+    const res = await api("/api/config", { method: "PUT", body: ta.value });
+    if (!res.ok) { say((await res.json()).error, "err"); return; }
+    dirty = false;
+    say("saved — the Kindle is redrawing", "ok");
+    setTab("live");
+    setTimeout(load, 6000);
+  });
+}
+
+function setTab(t) {
+  tab = t;
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+  if (t === "live") refreshShot(); else if (previewURL) shot.src = previewURL;
+}
+document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+$("formatBtn").addEventListener("click", () => {
+  if (!validate()) return;
+  ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
+  lines();
+});
+$("previewBtn").addEventListener("click", preview);
+$("saveBtn").addEventListener("click", save);
+$("syncBtn").addEventListener("click", () => busy($("syncBtn"), async () => {
+  await api("/api/sync", { method: "POST" });
+  say("sync requested", "ok");
+  setTimeout(load, 5000);
+}));
+
+load().catch(() => {});
+setInterval(() => load().catch(() => {}), 30000);
+</script>
+</body>
+</html>

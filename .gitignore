@@ -1,0 +1,4 @@
+build/
+amber.json
+.DS_Store
+local.mk

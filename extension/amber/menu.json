@@ -1,0 +1,15 @@
+{
+	"items": [
+	{
+		"name": "Amber",
+		"priority": 0,
+		"items": [
+			{ "name": "Start dashboard", "action": "./bin/start.sh", "exitmenu": true },
+			{ "name": "Start with demo data", "action": "./bin/start.sh", "params": "-demo", "exitmenu": true },
+			{ "name": "Stop dashboard", "action": "./bin/stop.sh", "exitmenu": true },
+			{ "name": "Autostart on boot: on", "action": "./bin/autostart.sh", "params": "on", "exitmenu": false, "refresh": false, "status": false },
+			{ "name": "Autostart on boot: off", "action": "./bin/autostart.sh", "params": "off", "exitmenu": false, "refresh": false, "status": false }
+		]
+	}
+	]
+}

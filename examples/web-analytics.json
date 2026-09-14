@@ -1,0 +1,158 @@
+{
+  "title": "MY SITE",
+  "timezone": "Europe/Berlin",
+  "refresh_minutes": 10,
+  "posthog": {
+    "host": "https://eu.posthog.com",
+    "project": "",
+    "api_key": ""
+  },
+  "web": {
+    "enabled": true,
+    "port": 8080
+  },
+  "rows": [
+    {
+      "height": 128,
+      "cells": [
+        {
+          "type": "stat",
+          "title": "Visitors",
+          "query": [
+            "SELECT uniqIf(person_id, timestamp >= today() - 6), uniqIf(person_id, timestamp < today() - 6)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13"
+          ],
+          "series": [
+            "SELECT toDate(timestamp) AS day, uniq(person_id)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13",
+            "GROUP BY day ORDER BY day"
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Pageviews",
+          "series": [
+            "SELECT toDate(timestamp) AS day, count()",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13",
+            "GROUP BY day ORDER BY day"
+          ]
+        }
+      ]
+    },
+    {
+      "height": 128,
+      "cells": [
+        {
+          "type": "stat",
+          "title": "Sessions",
+          "query": [
+            "SELECT uniqIf(`$session_id`, timestamp >= today() - 6), uniqIf(`$session_id`, timestamp < today() - 6)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13"
+          ],
+          "series": [
+            "SELECT toDate(timestamp) AS day, uniq(`$session_id`)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13",
+            "GROUP BY day ORDER BY day"
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Pages / session",
+          "format": "decimal2",
+          "query": [
+            "SELECT",
+            "  countIf(timestamp >= today() - 6) / nullIf(uniqIf(`$session_id`, timestamp >= today() - 6), 0),",
+            "  countIf(timestamp < today() - 6) / nullIf(uniqIf(`$session_id`, timestamp < today() - 6), 0)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13"
+          ],
+          "series": [
+            "SELECT toDate(timestamp) AS day, count() / nullIf(uniq(`$session_id`), 0)",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 13",
+            "GROUP BY day ORDER BY day"
+          ]
+        }
+      ]
+    },
+    {
+      "height": 152,
+      "title": "Traffic · 24h",
+      "meta_query": [
+        "SELECT concat('today ', toString(uniq(person_id)), ' visitors · ', toString(count()), ' pageviews')",
+        "FROM events",
+        "WHERE event = '$pageview' AND timestamp >= today()"
+      ],
+      "cells": [
+        {
+          "type": "chart",
+          "title": "Visitors / hour",
+          "style": "columns",
+          "label_every": 6,
+          "highlight_last": true,
+          "query": [
+            "SELECT formatDateTime(toTimeZone(hour, '{timezone}'), '%H') AS hour, visitors",
+            "FROM (",
+            "  SELECT toStartOfHour(timestamp) AS hour, uniq(person_id) AS visitors",
+            "  FROM events",
+            "  WHERE event = '$pageview' AND timestamp >= toStartOfHour(now()) - INTERVAL 23 HOUR",
+            "  GROUP BY hour",
+            "  ORDER BY hour WITH FILL FROM toStartOfHour(now()) - INTERVAL 23 HOUR TO toStartOfHour(now()) + INTERVAL 1 HOUR STEP INTERVAL 1 HOUR",
+            ")"
+          ]
+        }
+      ]
+    },
+    {
+      "height": 144,
+      "title": "Where from · 7d",
+      "cells": [
+        {
+          "type": "bars",
+          "title": "Referrers",
+          "query": [
+            "SELECT coalesce(nullIf(properties.$referring_domain, ''), '$direct') AS referrer, uniq(person_id) AS visitors",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 6",
+            "GROUP BY referrer ORDER BY visitors DESC LIMIT 4"
+          ]
+        },
+        {
+          "type": "stack",
+          "items": [
+            {
+              "type": "segments",
+              "title": "Devices",
+              "query": [
+                "SELECT coalesce(nullIf(properties.$device_type, ''), 'Unknown') AS device, uniq(person_id) AS visitors",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 6",
+                "GROUP BY device ORDER BY visitors DESC LIMIT 4"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "height": 116,
+      "title": "Top pages · 7d",
+      "cells": [
+        {
+          "type": "bars",
+          "query": [
+            "SELECT coalesce(nullIf(properties.$pathname, ''), '/') AS page, uniq(person_id) AS visitors",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today() - 6",
+            "GROUP BY page ORDER BY visitors DESC LIMIT 4"
+          ]
+        }
+      ]
+    }
+  ]
+}
