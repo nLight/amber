@@ -187,17 +187,22 @@ func paint(fbink string, frame []byte, full bool) error {
 		fbinkMissing.Do(func() { log.Printf("%s not found, not painting (fine off-device)", fbink) })
 		return nil
 	}
-	path := filepath.Join(os.TempDir(), "amber.png")
+	if full {
+		return paintAt(fbink, "amber.png", frame, "-f", "-W", "GC16")
+	}
+	return paintAt(fbink, "amber.png", frame, "-W", "GL16")
+}
+
+// paintAt draws a PNG whose top-left corner is the top-left of the screen.
+func paintAt(fbink, name string, frame []byte, flags ...string) error {
+	if _, err := os.Stat(fbink); err != nil {
+		return nil
+	}
+	path := filepath.Join(os.TempDir(), name)
 	if err := os.WriteFile(path, frame, 0o644); err != nil {
 		return err
 	}
-	args := []string{"-q", "-g", "file=" + path}
-	if full {
-		args = append(args, "-f", "-W", "GC16")
-	} else {
-		args = append(args, "-W", "GL16")
-	}
-	cmd := exec.Command(fbink, args...)
+	cmd := exec.Command(fbink, append([]string{"-q", "-g", "file=" + path}, flags...)...)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -349,22 +354,56 @@ func main() {
 			paint(a.fbink, frame, true)
 		}
 		force = !ok
-		select {
-		case <-stop:
-			return
-		case <-exit:
-			exec.Command(a.fbink, "-q", "-c", "-f", "-m", "-M", "Starting the Kindle UI...").Run()
-			return
-		case <-tap:
-			c := a.config()
-			a.mu.Lock()
-			stats := a.stats
-			a.mu.Unlock()
-			img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), syncing: true})
-			a.show(img, stats, false)
-			force = true
-		case force = <-a.syncs:
-		case <-time.After(wait):
+		deadline := time.Now().Add(wait)
+	wait:
+		for {
+			// Wake at the next minute to move the clock, or at the deadline.
+			next := time.Now().Truncate(time.Minute).Add(time.Minute)
+			if deadline.Before(next) {
+				next = deadline
+			}
+			select {
+			case <-stop:
+				return
+			case <-exit:
+				exec.Command(a.fbink, "-q", "-c", "-f", "-m", "-M", "Starting the Kindle UI...").Run()
+				return
+			case <-tap:
+				c := a.config()
+				a.mu.Lock()
+				stats := a.stats
+				a.mu.Unlock()
+				img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), syncing: true})
+				a.show(img, stats, false)
+				force = true
+				break wait
+			case force = <-a.syncs:
+				break wait
+			case <-time.After(time.Until(next)):
+				if !time.Now().Before(deadline) {
+					break wait
+				}
+				a.tickClock()
+			}
 		}
+	}
+}
+
+// tickClock redraws only the header, so the clock keeps time between syncs
+// without querying anything or refreshing the whole panel.
+func (a *App) tickClock() {
+	c := a.config()
+	a.mu.Lock()
+	stats := a.stats
+	a.mu.Unlock()
+	img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)})
+	var full, header bytes.Buffer
+	png.Encode(&full, img)
+	png.Encode(&header, img.SubImage(image.Rect(0, 0, screenW, headerTop)))
+	a.mu.Lock()
+	a.frame = full.Bytes()
+	a.mu.Unlock()
+	if err := paintAt(a.fbink, "amber-header.png", header.Bytes(), "-W", "GL16"); err != nil {
+		log.Printf("paint clock: %v", err)
 	}
 }

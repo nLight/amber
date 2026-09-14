@@ -32,8 +32,8 @@ API key with the **Query: Read** scope), and save.
 
 On the Kindle: **tap** to sync now, **hold for 3 seconds** to exit to the reader.
 
-Autostart runs once per boot: after the reader UI comes up it waits for Wi-Fi (up to two
-minutes), then takes over the screen. Amber re-enables Wi-Fi by itself if it drops. The
+Autostart runs once per boot: it waits for the home screen to finish loading and for
+Wi-Fi (up to two minutes), then takes over the screen. Amber re-enables Wi-Fi by itself if it drops. The
 log is `extensions/amber/amber.log` on the Kindle's USB storage. To skip it without a computer, put an empty file named `AMBER_DISABLE` in the root
 of the Kindle's USB storage. `make autostart-off` removes the job.
 

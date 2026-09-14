@@ -29,6 +29,9 @@ fi
     OLD_SAVER=$(lipc-get-prop com.lab126.powerd preventScreenSaver 2>/dev/null)
     lipc-set-prop com.lab126.powerd preventScreenSaver 1
     stop lab126_gui
+    # In case the reader UI was stopped mid-boot, dismiss its progress bar.
+    lipc-send-event com.lab126.hal.splash bootSplashCleanup 2>/dev/null
+    lipc-set-prop com.lab126.blanket unload splash 2>/dev/null
     sleep 4
     "$DIR/bin/amber" -config "$DIR/amber.json" "$@" &
     echo $! > "$PIDFILE"
