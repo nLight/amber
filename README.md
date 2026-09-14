@@ -30,7 +30,7 @@ Without an API key Amber shows demo data and prints the web UI address and PIN a
 bottom of the screen. Open it, set `posthog.project` and `posthog.api_key` (a personal
 API key with the **Query: Read** scope), and save.
 
-On the Kindle: **tap** to sync now, **hold for 3 seconds** to exit to the reader.
+On the Kindle, **hold a finger on the screen for 3 seconds** to exit to the reader.
 
 Autostart runs once per boot: it waits for the home screen to finish loading and for
 Wi-Fi (up to two minutes), then takes over the screen. Amber re-enables Wi-Fi by itself if it drops. The
@@ -54,11 +54,26 @@ port beyond it.
   "title": "MY SITE",
   "timezone": "Europe/Berlin",
   "refresh_minutes": 10,
+  "power": { "mode": "auto", "battery_refresh_minutes": 30 },
   "posthog": { "host": "https://eu.posthog.com", "project": "12345", "api_key": "phx_..." },
   "web": { "enabled": true, "port": 8080, "pin": "4821" },
   "rows": [ ... ]
 }
 ```
+
+### Power
+
+A Kindle that never sleeps lasts about 17 hours on a charge; the radio and the SoC
+idling awake cost far more than the queries. With `power.mode` set to `auto` (the
+default) Amber updates every `refresh_minutes` while charging, and on battery it
+suspends between updates, waking on an RTC alarm every `battery_refresh_minutes`. The
+E Ink panel keeps the last frame without power, and the big time in the header is
+when that frame was fetched. `awake` never sleeps; `sleep` always does.
+
+While asleep the web UI is unreachable. Amber stays awake for three minutes after it
+starts, and for five minutes after the power button wakes it early.
+
+### Layout
 
 The screen below the header has 700 px for rows; each row has a `height` and rows are
 8 px apart. A row with a `title` is one framed panel (with an optional `meta` caption or

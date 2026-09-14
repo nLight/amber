@@ -159,7 +159,7 @@ func (a *App) serveWeb() {
 			return
 		}
 		stats := a.store.Fetch(c, a.source(c), false, 2*time.Minute)
-		img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)})
+		img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At))
 		var buf bytes.Buffer
 		png.Encode(&buf, img)
 		w.Header().Set("Content-Type", "image/png")

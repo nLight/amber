@@ -62,6 +62,8 @@ type screenState struct {
 	battery string
 	webURL  string
 	notice  string // shown instead of the status line, e.g. while setup is unfinished
+	power   string // how the device refreshes, for the header
+	next    time.Time
 	syncing bool
 }
 
@@ -69,7 +71,12 @@ type screenState struct {
 func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenState) *image.Gray {
 	c := &canvas{Gray: image.NewGray(image.Rect(0, 0, screenW, screenH)), f: f}
 	c.fill(c.Rect, paper)
+	// The big time in the header is when the data was fetched: between updates the
+	// Kindle may be asleep, so a wall clock would be wrong most of the time.
 	now := time.Now().In(cfg.location)
+	if !stats.At.IsZero() {
+		now = stats.At.In(cfg.location)
+	}
 	renderHeader(c, cfg, now, st)
 
 	y := headerH
@@ -126,8 +133,9 @@ func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState) {
 	c.fill(image.Rect(0, 0, screenW, 60), black)
 	x := c.text(c.f.title, margin+2, 34, cfg.Title, paper)
 	c.text(c.f.small, x+10, 34, "// amber", ink3)
-	c.textRight(c.f.title, screenW-margin, 34, now.Format("15:04"), paper)
-	c.text(c.f.tiny, margin+2, 52, upper(now.Format("Mon 02 Jan"))+"  ·  tap: sync  ·  hold: exit", ink4)
+	tx := c.textRight(c.f.title, screenW-margin, 34, now.Format("15:04"), paper)
+	c.textRight(c.f.tiny, tx-8, 33, "UPDATED", ink3)
+	c.text(c.f.tiny, margin+2, 52, upper(now.Format("Mon 02 Jan"))+"  ·  "+st.power, ink4)
 
 	right := screenW - margin
 	if st.battery != "" {
@@ -165,11 +173,11 @@ func renderFooter(c *canvas, cfg *Config, now time.Time, stats Stats, st screenS
 		c.text(c.f.tiny, margin, y+16, truncate(msg, 82), paper)
 		return
 	}
-	left := fmt.Sprintf("sync %s  %dq", stats.At.In(cfg.location).Format("15:04"), stats.Ran)
+	left := fmt.Sprintf("%dq", stats.Ran)
 	if stats.Cached > 0 {
 		left += fmt.Sprintf("+%d cached", stats.Cached)
 	}
-	left += fmt.Sprintf("  %.1fs  next %s", stats.Took.Seconds(), stats.At.Add(cfg.Refresh()).In(cfg.location).Format("15:04"))
+	left += fmt.Sprintf("  %.1fs  next %s", stats.Took.Seconds(), st.next.In(cfg.location).Format("15:04"))
 	c.text(c.f.tiny, margin, y+16, left, ink1)
 	if st.webURL != "" {
 		c.textRight(c.f.tiny, screenW-margin, y+16, st.webURL, black)

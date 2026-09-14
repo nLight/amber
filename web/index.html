@@ -130,6 +130,8 @@
       <summary>widget reference</summary>
 <pre>rows[]            {height, title?, meta?, meta_query?, cells[]}
                   with a title: one framed panel; without: every cell is its own card
+power             {mode: auto | awake | sleep, battery_refresh_minutes}
+                  auto: live while charging, sleeps between updates on battery
 widget            {type, title, span?, style?, query?, series?, format?, cache_minutes?}
 
 stat              query → one row: value, previous?, series[]?

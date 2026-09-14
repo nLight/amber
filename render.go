@@ -17,13 +17,12 @@ import (
 )
 
 const (
-	screenW   = 600
-	screenH   = 800
-	margin    = 10
-	headerTop = 64 // the black header band with its perforation
-	headerH   = 72 // rows start here
-	footerH   = 28 // and end this far above the bottom edge
-	rowGap    = 8
+	screenW = 600
+	screenH = 800
+	margin  = 10
+	headerH = 72 // rows start here
+	footerH = 28 // and end this far above the bottom edge
+	rowGap  = 8
 )
 
 // E Ink panels show 16 gray levels; every tone used here is one of them, so the

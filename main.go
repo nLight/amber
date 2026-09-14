@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -89,6 +90,23 @@ func (a *App) webURL(c *Config) string {
 	return fmt.Sprintf("http://%s:%d  pin %s", localIP(), c.Web.Port, a.pin)
 }
 
+// state describes the device for the header and footer of a frame synced at `at`.
+func (a *App) state(c *Config, at time.Time) screenState {
+	st := screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)}
+	interval := c.Refresh()
+	switch {
+	case a.sleeping(c):
+		interval = time.Duration(c.Power.BatteryRefreshMinutes) * time.Minute
+		st.power = fmt.Sprintf("on battery · sleeps, wakes every %d min", c.Power.BatteryRefreshMinutes)
+	case charging():
+		st.power = fmt.Sprintf("charging · live, every %d min", c.RefreshMinutes)
+	default:
+		st.power = fmt.Sprintf("live, every %d min", c.RefreshMinutes)
+	}
+	st.next = at.Add(interval)
+	return st
+}
+
 // update fetches, renders and paints one frame. It reports false when the
 // fetch could not happen or nothing came back, so the caller retries sooner.
 func (a *App) update(force, full bool) bool {
@@ -99,8 +117,9 @@ func (a *App) update(force, full bool) bool {
 			a.mu.Lock()
 			stats := a.stats
 			a.mu.Unlock()
-			notice := "waiting for Wi-Fi (" + strings.ToLower(state) + ") ..."
-			a.show(renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), notice: notice}), stats, full)
+			st := a.state(c, time.Now())
+			st.notice = "waiting for Wi-Fi (" + strings.ToLower(state) + ") ..."
+			a.show(renderScreen(c, a.faces, a.store, stats, st), stats, full)
 			if !ensureWiFi(90 * time.Second) {
 				log.Printf("wifi did not connect, state %s", wifiState())
 				return false
@@ -108,7 +127,7 @@ func (a *App) update(force, full bool) bool {
 		}
 	}
 	stats := a.store.Fetch(c, src, force, 0)
-	img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)})
+	img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At))
 	a.show(img, stats, full)
 	return stats.Ran == 0 || stats.Failed < stats.Ran
 }
@@ -187,22 +206,17 @@ func paint(fbink string, frame []byte, full bool) error {
 		fbinkMissing.Do(func() { log.Printf("%s not found, not painting (fine off-device)", fbink) })
 		return nil
 	}
-	if full {
-		return paintAt(fbink, "amber.png", frame, "-f", "-W", "GC16")
-	}
-	return paintAt(fbink, "amber.png", frame, "-W", "GL16")
-}
-
-// paintAt draws a PNG whose top-left corner is the top-left of the screen.
-func paintAt(fbink, name string, frame []byte, flags ...string) error {
-	if _, err := os.Stat(fbink); err != nil {
-		return nil
-	}
-	path := filepath.Join(os.TempDir(), name)
+	path := filepath.Join(os.TempDir(), "amber.png")
 	if err := os.WriteFile(path, frame, 0o644); err != nil {
 		return err
 	}
-	cmd := exec.Command(fbink, append([]string{"-q", "-g", "file=" + path}, flags...)...)
+	args := []string{"-q", "-g", "file=" + path}
+	if full {
+		args = append(args, "-f", "-W", "GC16")
+	} else {
+		args = append(args, "-W", "GL16")
+	}
+	cmd := exec.Command(fbink, args...)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -314,7 +328,9 @@ func main() {
 
 	if *pngPath != "" {
 		stats := a.store.Fetch(cfg, a.source(cfg), true, 0)
-		img := renderScreen(cfg, a.faces, a.store, stats, screenState{battery: "87", webURL: a.webURL(cfg)})
+		st := a.state(cfg, stats.At)
+		st.battery = "87"
+		img := renderScreen(cfg, a.faces, a.store, stats, st)
 		var buf bytes.Buffer
 		png.Encode(&buf, img)
 		if err := os.WriteFile(*pngPath, buf.Bytes(), 0o644); err != nil {
@@ -337,13 +353,12 @@ func main() {
 	go watchTouch(*touchDevice, tap, exit)
 
 	force := true
+	// Stay awake for a few minutes after starting, so the web UI is reachable
+	// right after a boot or a deploy even when running on battery.
+	awakeUntil := time.Now().Add(3 * time.Minute)
 	for n := 0; ; n++ {
 		// Flash on start and every sixth update to clear ghosting.
 		ok := a.update(force, n%6 == 0)
-		wait := a.config().Refresh()
-		if !ok && wait > time.Minute {
-			wait = time.Minute // offline or every query failed: try again soon
-		}
 		if n == 0 {
 			// The stopping reader UI can still paint its progress bar over the first
 			// frame, so paint it once more after it has settled.
@@ -354,56 +369,81 @@ func main() {
 			paint(a.fbink, frame, true)
 		}
 		force = !ok
-		deadline := time.Now().Add(wait)
-	wait:
-		for {
-			// Wake at the next minute to move the clock, or at the deadline.
-			next := time.Now().Truncate(time.Minute).Add(time.Minute)
-			if deadline.Before(next) {
-				next = deadline
+
+		c := a.config()
+		if a.sleeping(c) && !time.Now().Before(awakeUntil) {
+			interval := time.Duration(c.Power.BatteryRefreshMinutes) * time.Minute
+			if !ok && interval > 5*time.Minute {
+				interval = 5 * time.Minute // offline or every query failed: try again sooner
 			}
-			select {
-			case <-stop:
-				return
-			case <-exit:
-				exec.Command(a.fbink, "-q", "-c", "-f", "-m", "-M", "Starting the Kindle UI...").Run()
-				return
-			case <-tap:
-				c := a.config()
-				a.mu.Lock()
-				stats := a.stats
-				a.mu.Unlock()
-				img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), syncing: true})
-				a.show(img, stats, false)
-				force = true
-				break wait
-			case force = <-a.syncs:
-				break wait
-			case <-time.After(time.Until(next)):
-				if !time.Now().Before(deadline) {
-					break wait
-				}
-				a.tickClock()
+			if suspendFor(interval) {
+				// Woken early, by the power button: stay up for the web UI.
+				log.Printf("woken before the alarm, staying awake for 5 minutes")
+				awakeUntil = time.Now().Add(5 * time.Minute)
 			}
+			continue
+		}
+
+		wait := c.Refresh()
+		if !ok && wait > time.Minute {
+			wait = time.Minute
+		}
+		if a.sleeping(c) {
+			// Sync once more when the awake window ends, then go to sleep.
+			wait = min(wait, time.Until(awakeUntil))
+		}
+		select {
+		case <-stop:
+			return
+		case <-exit:
+			exec.Command(a.fbink, "-q", "-c", "-f", "-m", "-M", "Starting the Kindle UI...").Run()
+			return
+		case <-tap:
+			force = true
+		case force = <-a.syncs:
+		case <-time.After(wait):
 		}
 	}
 }
 
-// tickClock redraws only the header, so the clock keeps time between syncs
-// without querying anything or refreshing the whole panel.
-func (a *App) tickClock() {
-	c := a.config()
-	a.mu.Lock()
-	stats := a.stats
-	a.mu.Unlock()
-	img := renderScreen(c, a.faces, a.store, stats, screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)})
-	var full, header bytes.Buffer
-	png.Encode(&full, img)
-	png.Encode(&header, img.SubImage(image.Rect(0, 0, screenW, headerTop)))
-	a.mu.Lock()
-	a.frame = full.Bytes()
-	a.mu.Unlock()
-	if err := paintAt(a.fbink, "amber-header.png", header.Bytes(), "-W", "GL16"); err != nil {
-		log.Printf("paint clock: %v", err)
+// sleeping reports whether the Kindle should suspend between updates now.
+func (a *App) sleeping(c *Config) bool {
+	switch c.Power.Mode {
+	case "awake":
+		return false
+	case "sleep":
+		return onKindle()
 	}
+	return onKindle() && !charging()
+}
+
+func onKindle() bool {
+	_, err := os.Stat("/sys/class/rtc/rtc1/wakealarm")
+	return err == nil && wifiState() != ""
+}
+
+func charging() bool {
+	out, err := exec.Command("lipc-get-prop", "com.lab126.powerd", "isCharging").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "1"
+}
+
+// suspendFor puts the Kindle to sleep with an RTC alarm to wake it. The E Ink panel
+// keeps showing the last frame without power. It reports whether something other
+// than the alarm, such as the power button, woke the device early.
+func suspendFor(d time.Duration) (early bool) {
+	// Let the panel finish the refresh and flush the log before the SoC stops.
+	time.Sleep(5 * time.Second)
+	exec.Command("sync").Run()
+	start := time.Now().Round(0) // wall clock: the monotonic clock stops during suspend
+	log.Printf("sleeping for %s", d)
+	// rtc1 is the SoC clock, the one enabled as a wakeup source on this Kindle.
+	cmd := exec.Command("rtcwake", "-d", "rtc1", "-m", "mem", "-s", strconv.Itoa(int(d.Seconds())))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("rtcwake: %v: %s; waiting awake instead", err, strings.TrimSpace(string(out)))
+		time.Sleep(d)
+		return false
+	}
+	slept := time.Now().Round(0).Sub(start)
+	log.Printf("woke after %s", slept.Round(time.Second))
+	return slept < d-time.Minute
 }

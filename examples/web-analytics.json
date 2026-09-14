@@ -2,6 +2,10 @@
   "title": "MY SITE",
   "timezone": "Europe/Berlin",
   "refresh_minutes": 10,
+  "power": {
+    "mode": "auto",
+    "battery_refresh_minutes": 30
+  },
   "posthog": {
     "host": "https://eu.posthog.com",
     "project": "",

@@ -16,6 +16,7 @@ type Config struct {
 	Title          string  `json:"title"`
 	Timezone       string  `json:"timezone,omitempty"`
 	RefreshMinutes int     `json:"refresh_minutes,omitempty"`
+	Power          Power   `json:"power"`
 	PostHog        PostHog `json:"posthog"`
 	Web            Web     `json:"web"`
 	Rows           []Row   `json:"rows"`
@@ -27,6 +28,13 @@ type PostHog struct {
 	Host    string `json:"host"`
 	Project string `json:"project"`
 	APIKey  string `json:"api_key"`
+}
+
+// Power decides whether the Kindle sleeps between updates. In "auto" it stays
+// awake while charging and sleeps on battery; "awake" never sleeps; "sleep" always does.
+type Power struct {
+	Mode                  string `json:"mode,omitempty"`
+	BatteryRefreshMinutes int    `json:"battery_refresh_minutes,omitempty"`
 }
 
 type Web struct {
@@ -119,6 +127,16 @@ func (c *Config) normalize() error {
 	}
 	if c.RefreshMinutes <= 0 {
 		c.RefreshMinutes = 10
+	}
+	switch c.Power.Mode {
+	case "":
+		c.Power.Mode = "auto"
+	case "auto", "awake", "sleep":
+	default:
+		return fmt.Errorf("power.mode: %q is not auto, awake or sleep", c.Power.Mode)
+	}
+	if c.Power.BatteryRefreshMinutes <= 0 {
+		c.Power.BatteryRefreshMinutes = 30
 	}
 	if c.PostHog.Host == "" {
 		c.PostHog.Host = "https://eu.posthog.com"
