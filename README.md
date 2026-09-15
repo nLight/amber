@@ -13,6 +13,8 @@ wall. The file can be edited from a web UI that the Kindle serves on your Wi-Fi.
 Tested on a Kindle Basic 2 (KT3, 600 × 800), firmware 5.16.2.1.1, WinterBreak + KUAL +
 USBNetwork (NiLuJe).
 
+<img width="1024" height="768" alt="amber" src="https://github.com/user-attachments/assets/1552c692-ceb1-407e-a90f-b1d1342596d1" />
+
 ## Install
 
 You need Go 1.21+, a Kindle with KUAL and USBNetwork, and SSH access to it as root with
