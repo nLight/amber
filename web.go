@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -140,6 +141,8 @@ func (a *App) serveWeb() {
 				"cached": stats.Cached, "failed": stats.Failed, "last_error": stats.LastErr,
 			},
 			"battery": battery(),
+			"screen":  a.currentPage() + 1,
+			"screens": len(c.Pages()),
 		})
 	}))
 
@@ -158,8 +161,12 @@ func (a *App) serveWeb() {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		page, err := strconv.Atoi(r.URL.Query().Get("screen"))
+		if err != nil || page < 1 {
+			page = 1
+		}
 		stats := a.store.Fetch(c, a.source(c), false, 2*time.Minute)
-		img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At))
+		img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At), page-1)
 		var buf bytes.Buffer
 		png.Encode(&buf, img)
 		w.Header().Set("Content-Type", "image/png")

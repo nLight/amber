@@ -136,10 +136,14 @@ func (s *Store) Fetch(cfg *Config, src Source, force bool, minAge time.Duration)
 			walk(it)
 		}
 	}
-	for _, r := range cfg.Rows {
-		add(r.MetaQuery, 0, "meta")
-		for _, w := range r.Cells {
-			walk(w)
+	// Every screen's queries run in one round, so rotating between screens is a
+	// redraw from the cache and never needs Wi-Fi.
+	for _, page := range cfg.Pages() {
+		for _, r := range page.Rows {
+			add(r.MetaQuery, 0, "meta")
+			for _, w := range r.Cells {
+				walk(w)
+			}
 		}
 	}
 	if src == nil {

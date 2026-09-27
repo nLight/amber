@@ -42,6 +42,7 @@ type App struct {
 	cfg   *Config
 	stats Stats
 	frame []byte // the last painted frame as PNG, for the web UI
+	page  int    // the screen on the panel, an index into cfg.Pages()
 }
 
 func (a *App) config() *Config {
@@ -53,6 +54,20 @@ func (a *App) config() *Config {
 func (a *App) setConfig(c *Config) {
 	a.mu.Lock()
 	a.cfg = c
+	a.page %= len(c.Pages())
+	a.mu.Unlock()
+}
+
+func (a *App) currentPage() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.page
+}
+
+// nextPage moves to the following screen, wrapping around.
+func (a *App) nextPage() {
+	a.mu.Lock()
+	a.page = (a.page + 1) % len(a.cfg.Pages())
 	a.mu.Unlock()
 }
 
@@ -93,24 +108,32 @@ func (a *App) webURL(c *Config) string {
 // state describes the device for the header and footer of a frame synced at `at`.
 func (a *App) state(c *Config, at time.Time) screenState {
 	st := screenState{battery: battery(), webURL: a.webURL(c), notice: a.notice(c)}
-	interval := c.Refresh()
+	sleeping := a.sleeping(c)
+	mode, every := "live", c.RefreshMinutes
 	switch {
-	case a.sleeping(c):
-		interval = time.Duration(c.Power.BatteryRefreshMinutes) * time.Minute
-		st.power = fmt.Sprintf("on battery · sleeps, wakes every %d min", c.Power.BatteryRefreshMinutes)
+	case sleeping:
+		mode, every = "on battery · sleeps", c.Power.BatteryRefreshMinutes
 	case charging():
-		st.power = fmt.Sprintf("charging · live, every %d min", c.RefreshMinutes)
-	default:
-		st.power = fmt.Sprintf("live, every %d min", c.RefreshMinutes)
+		mode = "charging · live"
 	}
-	st.next = at.Add(interval)
+	switch {
+	case len(c.Pages()) > 1:
+		st.power = fmt.Sprintf("%s · data %dm · screens %dm", mode, every, c.RotateMinutes)
+	case sleeping:
+		st.power = fmt.Sprintf("%s, wakes every %d min", mode, every)
+	default:
+		st.power = fmt.Sprintf("%s, every %d min", mode, every)
+	}
+	st.next = at.Add(time.Duration(every) * time.Minute)
 	return st
 }
 
-// update fetches, renders and paints one frame. It reports false when the
-// fetch could not happen or nothing came back, so the caller retries sooner.
+// update fetches the data of every screen, then renders and paints the current
+// one. It reports false when the fetch could not happen or nothing came back, so
+// the caller retries sooner.
 func (a *App) update(force, full bool) bool {
 	c := a.config()
+	page := a.currentPage()
 	src := a.source(c)
 	if src != nil {
 		if state := wifiState(); state != "" && state != "CONNECTED" {
@@ -119,7 +142,7 @@ func (a *App) update(force, full bool) bool {
 			a.mu.Unlock()
 			st := a.state(c, time.Now())
 			st.notice = "waiting for Wi-Fi (" + strings.ToLower(state) + ") ..."
-			a.show(renderScreen(c, a.faces, a.store, stats, st), stats, full)
+			a.show(renderScreen(c, a.faces, a.store, stats, st, page), stats, full)
 			if !ensureWiFi(90 * time.Second) {
 				log.Printf("wifi did not connect, state %s", wifiState())
 				return false
@@ -127,9 +150,18 @@ func (a *App) update(force, full bool) bool {
 		}
 	}
 	stats := a.store.Fetch(c, src, force, 0)
-	img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At))
+	img := renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At), page)
 	a.show(img, stats, full)
 	return stats.Ran == 0 || stats.Failed < stats.Ran
+}
+
+// redraw paints the current screen from cached results, without the network.
+func (a *App) redraw(full bool) {
+	c := a.config()
+	a.mu.Lock()
+	stats := a.stats
+	a.mu.Unlock()
+	a.show(renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At), a.currentPage()), stats, full)
 }
 
 func (a *App) show(img image.Image, stats Stats, full bool) {
@@ -293,6 +325,7 @@ func main() {
 	check := flag.Bool("check", false, "validate the config and exit")
 	touchDevice := flag.String("touch", "/dev/input/event0", "touchscreen input device")
 	fbink := flag.String("fbink", "/mnt/us/usbnet/bin/fbink", "path to the FBInk binary")
+	screen := flag.Int("screen", 1, "with -png, which screen to render, from 1")
 	flag.Parse()
 
 	cfg, err := loadConfig(*configPath)
@@ -330,7 +363,7 @@ func main() {
 		stats := a.store.Fetch(cfg, a.source(cfg), true, 0)
 		st := a.state(cfg, stats.At)
 		st.battery = "87"
-		img := renderScreen(cfg, a.faces, a.store, stats, st)
+		img := renderScreen(cfg, a.faces, a.store, stats, st, *screen-1)
 		var buf bytes.Buffer
 		png.Encode(&buf, img)
 		if err := os.WriteFile(*pngPath, buf.Bytes(), 0o644); err != nil {
@@ -352,13 +385,46 @@ func main() {
 	exit := make(chan struct{})
 	go watchTouch(*touchDevice, tap, exit)
 
+	// Data and screens run on separate clocks. Every fetch gets the data of all
+	// screens over Wi-Fi; rotating to the next screen only redraws from the cache.
+	// Both deadlines are wall-clock times without a monotonic reading, because the
+	// monotonic clock stops while the Kindle is suspended.
+	var nextFetch time.Time // the zero time: fetch now
+	nextRotate := wallNow().Add(cfg.Rotate())
 	force := true
 	// Stay awake for a few minutes after starting, so the web UI is reachable
 	// right after a boot or a deploy even when running on battery.
-	awakeUntil := time.Now().Add(3 * time.Minute)
+	awakeUntil := wallNow().Add(3 * time.Minute)
+	frames := 0 // painted so far, to flash every sixth
 	for n := 0; ; n++ {
-		// Flash on start and every sixth update to clear ghosting.
-		ok := a.update(force, n%6 == 0)
+		c := a.config()
+		rotating := len(c.Pages()) > 1
+		repaint := false
+		if rotating && due(nextRotate) {
+			a.nextPage()
+			nextRotate = wallNow().Add(c.Rotate())
+			repaint = true
+		}
+		// A fetch due shortly after a rotation happens with it, rather than waking twice.
+		if due(nextFetch) || repaint && time.Until(nextFetch) < time.Minute {
+			// Flash on start and every sixth frame to clear ghosting.
+			ok := a.update(force, frames%6 == 0)
+			force = !ok
+			interval, retry := c.Refresh(), time.Minute
+			if a.sleeping(c) && due(awakeUntil) {
+				interval, retry = time.Duration(c.Power.BatteryRefreshMinutes)*time.Minute, 5*time.Minute
+			}
+			if !ok {
+				interval = min(interval, retry) // offline or every query failed: try again sooner
+			}
+			nextFetch = wallNow().Add(interval)
+			repaint = false
+			frames++
+		}
+		if repaint {
+			a.redraw(frames%6 == 0)
+			frames++
+		}
 		if n == 0 {
 			// The stopping reader UI can still paint its progress bar over the first
 			// frame, so paint it once more after it has settled.
@@ -368,28 +434,23 @@ func main() {
 			a.mu.Unlock()
 			paint(a.fbink, frame, true)
 		}
-		force = !ok
 
-		c := a.config()
-		if a.sleeping(c) && !time.Now().Before(awakeUntil) {
-			interval := time.Duration(c.Power.BatteryRefreshMinutes) * time.Minute
-			if !ok && interval > 5*time.Minute {
-				interval = 5 * time.Minute // offline or every query failed: try again sooner
-			}
-			if suspendFor(interval) {
-				// Woken early, by the power button: stay up for the web UI.
+		wake := nextFetch
+		if rotating && nextRotate.Before(wake) {
+			wake = nextRotate
+		}
+		wait := time.Until(wake)
+		if a.sleeping(c) && due(awakeUntil) && wait > 30*time.Second {
+			if suspendFor(wait) {
+				// Woken early, by the power button: fetch now and stay up for the web UI.
 				log.Printf("woken before the alarm, staying awake for 5 minutes")
-				awakeUntil = time.Now().Add(5 * time.Minute)
+				awakeUntil = wallNow().Add(5 * time.Minute)
+				nextFetch = time.Time{}
 			}
 			continue
 		}
-
-		wait := c.Refresh()
-		if !ok && wait > time.Minute {
-			wait = time.Minute
-		}
 		if a.sleeping(c) {
-			// Sync once more when the awake window ends, then go to sleep.
+			// Go to sleep as soon as the awake window ends.
 			wait = min(wait, time.Until(awakeUntil))
 		}
 		select {
@@ -399,12 +460,26 @@ func main() {
 			exec.Command(a.fbink, "-q", "-c", "-f", "-m", "-M", "Starting the Kindle UI...").Run()
 			return
 		case <-tap:
-			force = true
+			if rotating {
+				// A tap flips to the next screen right away.
+				nextRotate = time.Time{}
+			} else {
+				nextFetch, force = time.Time{}, true
+			}
 		case force = <-a.syncs:
-		case <-time.After(wait):
+			nextFetch = time.Time{}
+		case <-time.After(max(wait, time.Second)):
 		}
 	}
 }
+
+// wallNow is the current time without a monotonic reading, so durations measured
+// from it include time spent in suspend.
+func wallNow() time.Time { return time.Now().Round(0) }
+
+// due reports whether a deadline has come, allowing for an alarm that fires a
+// few seconds early.
+func due(t time.Time) bool { return !wallNow().Add(5 * time.Second).Before(t) }
 
 // sleeping reports whether the Kindle should suspend between updates now.
 func (a *App) sleeping(c *Config) bool {
@@ -445,5 +520,5 @@ func suspendFor(d time.Duration) (early bool) {
 	}
 	slept := time.Now().Round(0).Sub(start)
 	log.Printf("woke after %s", slept.Round(time.Second))
-	return slept < d-time.Minute
+	return slept < d-min(time.Minute, d/4)
 }
