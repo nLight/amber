@@ -67,8 +67,10 @@ type screenState struct {
 	syncing bool
 }
 
-// renderScreen draws the whole frame from the config and whatever the store holds.
-func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenState) *image.Gray {
+// renderScreen draws one of the config's screens from whatever the store holds.
+func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenState, page int) *image.Gray {
+	pages := cfg.Pages()
+	page = (page%len(pages) + len(pages)) % len(pages)
 	c := &canvas{Gray: image.NewGray(image.Rect(0, 0, screenW, screenH)), f: f}
 	c.fill(c.Rect, paper)
 	// The big time in the header is when the data was fetched: between updates the
@@ -77,10 +79,10 @@ func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenSta
 	if !stats.At.IsZero() {
 		now = stats.At.In(cfg.location)
 	}
-	renderHeader(c, cfg, now, st)
+	renderHeader(c, cfg, now, st, page)
 
 	y := headerH
-	for _, row := range cfg.Rows {
+	for _, row := range pages[page].Rows {
 		r := image.Rect(margin, y, screenW-margin, y+row.Height)
 		if row.Title != "" {
 			meta := row.Meta
@@ -129,10 +131,26 @@ func splitSpans(r image.Rectangle, ws []Widget, gap int) []image.Rectangle {
 	return out
 }
 
-func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState) {
+func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState, page int) {
 	c.fill(image.Rect(0, 0, screenW, 60), black)
-	x := c.text(c.f.title, margin+2, 34, cfg.Title, paper)
-	c.text(c.f.small, x+10, 34, "// amber", ink3)
+	pages := cfg.Pages()
+	title := cfg.Title
+	if t := pages[page].Title; t != "" {
+		title = t // a screen's own title replaces the config's
+	}
+	x := c.text(c.f.title, margin+2, 34, title, paper)
+	x = c.text(c.f.small, x+10, 34, "// amber", ink3)
+	if len(pages) > 1 {
+		// Page dots: the current screen filled, the others outlined.
+		for i := range pages {
+			r := image.Rect(x+10+i*12, 25, x+18+i*12, 33)
+			if i == page {
+				c.fill(r, paper)
+			} else {
+				c.stroke(r, ink3, 1)
+			}
+		}
+	}
 	tx := c.textRight(c.f.title, screenW-margin, 34, now.Format("15:04"), paper)
 	c.textRight(c.f.tiny, tx-8, 33, "UPDATED", ink3)
 	c.text(c.f.tiny, margin+2, 52, upper(now.Format("Mon 02 Jan"))+"  ·  "+st.power, ink4)

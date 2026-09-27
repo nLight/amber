@@ -11,17 +11,28 @@ import (
 	"time"
 )
 
-// Config is amber.json: data source credentials plus a screen made of rows of widgets.
+// Config is amber.json: data source credentials plus one or more screens made of
+// rows of widgets. A single screen may be given as top-level rows; several go in
+// screens and rotate every rotate_minutes.
 type Config struct {
-	Title          string  `json:"title"`
-	Timezone       string  `json:"timezone,omitempty"`
-	RefreshMinutes int     `json:"refresh_minutes,omitempty"`
-	Power          Power   `json:"power"`
-	PostHog        PostHog `json:"posthog"`
-	Web            Web     `json:"web"`
-	Rows           []Row   `json:"rows"`
+	Title          string   `json:"title"`
+	Timezone       string   `json:"timezone,omitempty"`
+	RefreshMinutes int      `json:"refresh_minutes,omitempty"`
+	RotateMinutes  int      `json:"rotate_minutes,omitempty"`
+	Power          Power    `json:"power"`
+	PostHog        PostHog  `json:"posthog"`
+	Web            Web      `json:"web"`
+	Rows           []Row    `json:"rows,omitempty"`
+	Screens        []Screen `json:"screens,omitempty"`
 
 	location *time.Location
+	pages    []Screen // Screens, or Rows as the only screen
+}
+
+// Screen is one full frame of rows. Its title is shown next to the config title.
+type Screen struct {
+	Title string `json:"title,omitempty"`
+	Rows  []Row  `json:"rows"`
 }
 
 type PostHog struct {
@@ -153,26 +164,52 @@ func (c *Config) normalize() error {
 		}
 		c.location = loc
 	}
-	if len(c.Rows) == 0 {
-		return errors.New("rows: the screen needs at least one row")
+	switch {
+	case len(c.Rows) > 0 && len(c.Screens) > 0:
+		return errors.New("rows and screens: use rows for one screen or screens for several, not both")
+	case len(c.Screens) > 0:
+		c.pages = c.Screens
+	default:
+		c.pages = []Screen{{Rows: c.Rows}}
+	}
+	if c.RotateMinutes <= 0 {
+		c.RotateMinutes = 5
+	}
+	for i := range c.pages {
+		where := "rows"
+		if len(c.Screens) > 0 {
+			where = fmt.Sprintf("screens[%d].rows", i)
+		}
+		if err := checkRows(c.pages[i].Rows, where); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkRows validates one screen. The rows share their backing array with the
+// config, so the defaults checkWidget fills in stick.
+func checkRows(rows []Row, where string) error {
+	if len(rows) == 0 {
+		return fmt.Errorf("%s: the screen needs at least one row", where)
 	}
 	total := 0
-	for i, r := range c.Rows {
+	for i, r := range rows {
 		if r.Height <= 0 {
-			return fmt.Errorf("rows[%d]: height must be positive", i)
+			return fmt.Errorf("%s[%d]: height must be positive", where, i)
 		}
 		total += r.Height
 		if len(r.Cells) == 0 {
-			return fmt.Errorf("rows[%d]: no cells", i)
+			return fmt.Errorf("%s[%d]: no cells", where, i)
 		}
 		for j := range r.Cells {
-			if err := checkWidget(&c.Rows[i].Cells[j], fmt.Sprintf("rows[%d].cells[%d]", i, j)); err != nil {
+			if err := checkWidget(&rows[i].Cells[j], fmt.Sprintf("%s[%d].cells[%d]", where, i, j)); err != nil {
 				return err
 			}
 		}
 	}
-	if avail := screenH - headerH - footerH; total+rowGap*(len(c.Rows)-1) > avail {
-		return fmt.Errorf("rows: heights plus gaps add up to %d px, the screen has %d", total+rowGap*(len(c.Rows)-1), avail)
+	if avail := screenH - headerH - footerH; total+rowGap*(len(rows)-1) > avail {
+		return fmt.Errorf("%s: heights plus gaps add up to %d px, the screen has %d", where, total+rowGap*(len(rows)-1), avail)
 	}
 	return nil
 }
@@ -210,6 +247,11 @@ func checkWidget(w *Widget, where string) error {
 }
 
 func (c *Config) Refresh() time.Duration { return time.Duration(c.RefreshMinutes) * time.Minute }
+
+func (c *Config) Rotate() time.Duration { return time.Duration(c.RotateMinutes) * time.Minute }
+
+// Pages returns the screens to rotate through; always at least one.
+func (c *Config) Pages() []Screen { return c.pages }
 
 // Masked returns the config as JSON for the web UI, without the API key.
 func (c *Config) Masked() ([]byte, error) {

@@ -59,6 +59,8 @@
   button.tab { border-color: transparent; color: var(--amber-dim); }
   button.tab.on { border-color: var(--amber-dim); color: var(--amber); }
   kbd { color: var(--amber-faint); font-size: 11px; }
+  .pager { display: inline-flex; align-items: center; gap: 6px; color: var(--amber-dim); }
+  .pager button { padding: 0 6px; }
 
   .editor { position: relative; flex: 1; min-height: 420px; display: flex; }
   .gutter { background: #0a0804; padding: 10px 8px 10px 0; text-align: right; color: var(--amber-faint); user-select: none; overflow: hidden; min-width: 44px; white-space: pre; }
@@ -128,10 +130,14 @@
     <div class="status" id="status">loading…</div>
     <details class="ref">
       <summary>widget reference</summary>
-<pre>rows[]            {height, title?, meta?, meta_query?, cells[]}
+<pre>screens[]         {title?, rows[]}  several screens, shown in turn; title replaces the header title
+rotate_minutes    time per screen; on battery the Kindle sleeps in between
+                  rotating only redraws: one fetch gets every screen's data
+rows[]            {height, title?, meta?, meta_query?, cells[]}
                   with a title: one framed panel; without: every cell is its own card
 power             {mode: auto | awake | sleep, battery_refresh_minutes}
                   auto: live while charging, sleeps between updates on battery
+                  refresh_minutes / battery_refresh_minutes: how often data is fetched
 widget            {type, title, span?, style?, query?, series?, format?, cache_minutes?}
 
 stat              query → one row: value, previous?, series[]?
@@ -157,6 +163,11 @@ screen            600 × 800; rows fit in 700 px including 8 px gaps</pre>
     <div class="bar">
       <button class="tab on" data-tab="live">LIVE SCREEN</button>
       <button class="tab" data-tab="preview">PREVIEW</button>
+      <span class="pager" id="pager" hidden>
+        <button id="prevScreen" title="Preview the previous screen">◀</button>
+        <span id="pageLabel">1/1</span>
+        <button id="nextScreen" title="Preview the next screen">▶</button>
+      </span>
       <span class="spacer"></span>
       <button id="syncBtn" title="Query PostHog now">SYNC NOW</button>
     </div>
@@ -172,7 +183,7 @@ screen            600 × 800; rows fit in 700 px including 8 px gaps</pre>
 <script>
 const $ = (id) => document.getElementById(id);
 const ta = $("config"), gutter = $("gutter"), status = $("status"), shot = $("shot");
-let tab = "live", previewURL = null, dirty = false;
+let tab = "live", previewURL = null, dirty = false, page = 1;
 
 function say(text, kind = "") { status.textContent = text; status.className = "status " + kind; }
 
@@ -198,7 +209,7 @@ function lines() {
   gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n");
   gutter.scrollTop = ta.scrollTop;
 }
-ta.addEventListener("input", () => { dirty = true; lines(); validate(); });
+ta.addEventListener("input", () => { dirty = true; lines(); if (validate()) pager(); });
 ta.addEventListener("scroll", () => { gutter.scrollTop = ta.scrollTop; });
 ta.addEventListener("keydown", (e) => {
   if (e.key === "Tab") {
@@ -229,6 +240,7 @@ function chips(state) {
     ["took", (s.took_ms / 1000).toFixed(1) + "s"],
   ];
   if (state.battery) items.push(["battery", state.battery + "%"]);
+  if (state.screens > 1) items.push(["screen", `${state.screen}/${state.screens}`]);
   if (state.demo) items.push(["mode", "demo"]);
   $("chips").innerHTML = items.map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("")
     + (s.failed ? `<span class="chip bad" title="${escapeHTML(s.last_error)}">failed <b>${s.failed}</b></span>` : "");
@@ -237,7 +249,7 @@ const escapeHTML = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "
 
 async function load() {
   const state = await (await api("/api/state")).json();
-  if (!dirty) { ta.value = state.config; lines(); validate(); }
+  if (!dirty) { ta.value = state.config; lines(); if (validate()) pager(); }
   chips(state);
   if (tab === "live") refreshShot();
 }
@@ -255,7 +267,7 @@ async function preview() {
   await busy($("previewBtn"), async () => {
     say("rendering preview… (queries PostHog, a few seconds on the Kindle)");
     shot.classList.add("loading");
-    const res = await api("/api/preview", { method: "POST", body: ta.value });
+    const res = await api("/api/preview?screen=" + page, { method: "POST", body: ta.value });
     shot.classList.remove("loading");
     if (!res.ok) { say((await res.json()).error, "err"); return; }
     if (previewURL) URL.revokeObjectURL(previewURL);
@@ -263,7 +275,7 @@ async function preview() {
     setTab("preview");
     const failed = +res.headers.get("X-Amber-Failed");
     failed ? say(`preview rendered, ${failed} queries failed: ${res.headers.get("X-Amber-Error")}`, "err")
-           : say("preview rendered — not saved yet", "ok");
+           : say(`preview of screen ${page} rendered — not saved yet`, "ok");
   });
 }
 
@@ -292,6 +304,26 @@ $("formatBtn").addEventListener("click", () => {
   lines();
 });
 $("previewBtn").addEventListener("click", preview);
+
+// The pager picks which screen PREVIEW renders when the config has several.
+function screenCount() {
+  try { const s = JSON.parse(ta.value).screens; return Array.isArray(s) && s.length ? s.length : 1; }
+  catch { return 1; }
+}
+function pager() {
+  const n = screenCount();
+  page = Math.min(page, n);
+  $("pager").hidden = n < 2;
+  $("pageLabel").textContent = `${page}/${n}`;
+}
+function flip(step) {
+  const n = screenCount();
+  page = (page - 1 + step + n) % n + 1;
+  pager();
+  preview();
+}
+$("prevScreen").addEventListener("click", () => flip(-1));
+$("nextScreen").addEventListener("click", () => flip(1));
 $("saveBtn").addEventListener("click", save);
 $("syncBtn").addEventListener("click", () => busy($("syncBtn"), async () => {
   await api("/api/sync", { method: "POST" });

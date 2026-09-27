@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExampleConfigsAreValid(t *testing.T) {
-	for _, path := range []string{"examples/app-store.json", "examples/web-analytics.json"} {
+	for _, path := range []string{"examples/app-store.json", "examples/web-analytics.json", "examples/rotating.json"} {
 		if _, err := loadConfig(path); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
@@ -109,5 +110,60 @@ func TestDeltaFormats(t *testing.T) {
 		if label != tc.label || good != tc.good {
 			t.Errorf("delta(%v, %s) = %s good=%v, want %s good=%v", tc.p, tc.format, label, good, tc.label, tc.good)
 		}
+	}
+}
+
+func TestRowsAndScreensMakePages(t *testing.T) {
+	one, err := parseConfig([]byte(`{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.Pages()) != 1 || one.Pages()[0].Rows[0].Cells[0].Span != 1 {
+		t.Fatalf("rows should be one page with defaults filled in, got %+v", one.Pages())
+	}
+	two, err := parseConfig([]byte(`{"rotate_minutes": 3, "screens": [
+		{"title": "a", "rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}]},
+		{"title": "b", "rows": [{"height": 100, "cells": [{"type": "stat", "query": "B"}]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(two.Pages()) != 2 || two.Rotate() != 3*time.Minute || two.Screens[1].Rows[0].Cells[0].Span != 1 {
+		t.Fatalf("got %d pages, rotate %s", len(two.Pages()), two.Rotate())
+	}
+	out, _ := json.Marshal(two)
+	var top map[string]any
+	json.Unmarshal(out, &top)
+	if _, ok := top["rows"]; ok || top["screens"] == nil {
+		t.Fatalf("screens should round-trip as screens only: %s", out)
+	}
+}
+
+func TestConfigRejectsBadScreens(t *testing.T) {
+	cases := map[string]string{
+		"both":       `{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}], "screens": [{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}]}]}`,
+		"empty":      `{"screens": [{"title": "a", "rows": []}]}`,
+		"none":       `{}`,
+		"second bad": `{"screens": [{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}]}, {"rows": [{"height": 900, "cells": [{"type": "stat", "query": "A"}]}]}]}`,
+	}
+	for name, cfg := range cases {
+		if _, err := parseConfig([]byte(cfg)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestFetchGetsEveryScreen(t *testing.T) {
+	c, err := parseConfig([]byte(`{"screens": [
+		{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "A"}]}]},
+		{"rows": [{"height": 100, "cells": [{"type": "stat", "query": "B"}]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newStore()
+	if st := store.Fetch(c, nil, true, 0); st.Ran != 2 {
+		t.Fatalf("ran %d queries, want 2", st.Ran)
+	}
+	if store.Get(c, "B") == nil {
+		t.Fatal("the second screen's query was not fetched")
 	}
 }

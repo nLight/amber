@@ -1,0 +1,411 @@
+{
+  "title": "MY PRODUCT",
+  "timezone": "Europe/Berlin",
+  "refresh_minutes": 10,
+  "rotate_minutes": 5,
+  "power": {
+    "mode": "auto",
+    "battery_refresh_minutes": 30
+  },
+  "posthog": {
+    "host": "https://eu.posthog.com",
+    "project": "",
+    "api_key": ""
+  },
+  "web": {
+    "enabled": true,
+    "port": 8080
+  },
+  "screens": [
+    {
+      "title": "MY SITE",
+      "rows": [
+        {
+          "height": 128,
+          "cells": [
+            {
+              "type": "stat",
+              "title": "Visitors",
+              "query": [
+                "SELECT uniqIf(person_id, timestamp >= today() - 6), uniqIf(person_id, timestamp < today() - 6)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13"
+              ],
+              "series": [
+                "SELECT toDate(timestamp) AS day, uniq(person_id)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13",
+                "GROUP BY day ORDER BY day"
+              ]
+            },
+            {
+              "type": "stat",
+              "title": "Pageviews",
+              "series": [
+                "SELECT toDate(timestamp) AS day, count()",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13",
+                "GROUP BY day ORDER BY day"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 128,
+          "cells": [
+            {
+              "type": "stat",
+              "title": "Sessions",
+              "query": [
+                "SELECT uniqIf(`$session_id`, timestamp >= today() - 6), uniqIf(`$session_id`, timestamp < today() - 6)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13"
+              ],
+              "series": [
+                "SELECT toDate(timestamp) AS day, uniq(`$session_id`)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13",
+                "GROUP BY day ORDER BY day"
+              ]
+            },
+            {
+              "type": "stat",
+              "title": "Pages / session",
+              "format": "decimal2",
+              "query": [
+                "SELECT",
+                "  countIf(timestamp >= today() - 6) / nullIf(uniqIf(`$session_id`, timestamp >= today() - 6), 0),",
+                "  countIf(timestamp < today() - 6) / nullIf(uniqIf(`$session_id`, timestamp < today() - 6), 0)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13"
+              ],
+              "series": [
+                "SELECT toDate(timestamp) AS day, count() / nullIf(uniq(`$session_id`), 0)",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13",
+                "GROUP BY day ORDER BY day"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 152,
+          "title": "Traffic · 24h",
+          "meta_query": [
+            "SELECT concat('today ', toString(uniq(person_id)), ' visitors · ', toString(count()), ' pageviews')",
+            "FROM events",
+            "WHERE event = '$pageview' AND timestamp >= today()"
+          ],
+          "cells": [
+            {
+              "type": "chart",
+              "title": "Visitors / hour",
+              "style": "columns",
+              "label_every": 6,
+              "highlight_last": true,
+              "query": [
+                "SELECT formatDateTime(toTimeZone(hour, '{timezone}'), '%H') AS hour, visitors",
+                "FROM (",
+                "  SELECT toStartOfHour(timestamp) AS hour, uniq(person_id) AS visitors",
+                "  FROM events",
+                "  WHERE event = '$pageview' AND timestamp >= toStartOfHour(now()) - INTERVAL 23 HOUR",
+                "  GROUP BY hour",
+                "  ORDER BY hour WITH FILL FROM toStartOfHour(now()) - INTERVAL 23 HOUR TO toStartOfHour(now()) + INTERVAL 1 HOUR STEP INTERVAL 1 HOUR",
+                ")"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 144,
+          "title": "Where from · 7d",
+          "cells": [
+            {
+              "type": "bars",
+              "title": "Referrers",
+              "query": [
+                "SELECT coalesce(nullIf(properties.$referring_domain, ''), '$direct') AS referrer, uniq(person_id) AS visitors",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 6",
+                "GROUP BY referrer ORDER BY visitors DESC LIMIT 4"
+              ]
+            },
+            {
+              "type": "stack",
+              "items": [
+                {
+                  "type": "segments",
+                  "title": "Devices",
+                  "query": [
+                    "SELECT coalesce(nullIf(properties.$device_type, ''), 'Unknown') AS device, uniq(person_id) AS visitors",
+                    "FROM events",
+                    "WHERE event = '$pageview' AND timestamp >= today() - 6",
+                    "GROUP BY device ORDER BY visitors DESC LIMIT 4"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "height": 116,
+          "title": "Top pages · 7d",
+          "cells": [
+            {
+              "type": "bars",
+              "query": [
+                "SELECT coalesce(nullIf(properties.$pathname, ''), '/') AS page, uniq(person_id) AS visitors",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 6",
+                "GROUP BY page ORDER BY visitors DESC LIMIT 4"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "MY APP",
+      "rows": [
+        {
+          "height": 128,
+          "cells": [
+            {
+              "type": "stat",
+              "title": "Transactions",
+              "cache_minutes": 60,
+              "series": [
+                "SELECT",
+                "  toDate(parseDateTimeBestEffort(report_date)) AS day,",
+                "  sumIf(toInt(units), product_type_identifier IN ('IA1-M', 'IAY-M') AND toInt(units) > 0 AND toFloat(developer_proceeds) > 0) AS transactions",
+                "FROM appstoreconnect_sales_reports",
+                "WHERE toDate(parseDateTimeBestEffort(report_date)) >= today() - 30",
+                "GROUP BY day",
+                "ORDER BY day"
+              ]
+            },
+            {
+              "type": "stat",
+              "title": "Downloads",
+              "cache_minutes": 60,
+              "series": [
+                "SELECT",
+                "  toDate(parseDateTimeBestEffort(report_date)) AS day,",
+                "  sumIf(toInt(units), product_type_identifier = 'F1') AS downloads",
+                "FROM appstoreconnect_sales_reports",
+                "WHERE toDate(parseDateTimeBestEffort(report_date)) >= today() - 30",
+                "GROUP BY day",
+                "ORDER BY day"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 128,
+          "cells": [
+            {
+              "type": "stat",
+              "title": "Visitors",
+              "query": [
+                "SELECT",
+                "  uniqIf(person_id, timestamp >= today() - 6) AS visitors,",
+                "  uniqIf(person_id, timestamp < today() - 6) AS previous",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13"
+              ],
+              "series": [
+                "SELECT toDate(timestamp) AS day, uniq(person_id) AS visitors",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 13",
+                "GROUP BY day",
+                "ORDER BY day"
+              ]
+            },
+            {
+              "type": "stat",
+              "title": "Search clicks",
+              "cache_minutes": 60,
+              "series": [
+                "SELECT date AS day, sum(clicks) AS clicks",
+                "FROM googlesearchconsole_search_analytics_by_date",
+                "WHERE date >= today() - 30",
+                "GROUP BY day",
+                "ORDER BY day"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 170,
+          "title": "App Store",
+          "meta_query": "SELECT concat('data through ', upper(formatDateTime(max(toDate(parseDateTimeBestEffort(report_date))), '%d %b'))) FROM appstoreconnect_sales_reports",
+          "cells": [
+            {
+              "type": "stack",
+              "items": [
+                {
+                  "type": "segments",
+                  "title": "Purchase mix · 7d",
+                  "span": 5,
+                  "cache_minutes": 60,
+                  "query": [
+                    "WITH (SELECT max(toDate(parseDateTimeBestEffort(report_date))) FROM appstoreconnect_sales_reports) AS last",
+                    "SELECT",
+                    "  sumIf(toInt(units), subscription = 'New' AND toInt(units) > 0 AND toFloat(developer_proceeds) > 0) AS new,",
+                    "  sumIf(toInt(units), subscription = 'Renewal' AND toInt(units) > 0) AS renew,",
+                    "  sumIf(toInt(units), product_type_identifier = 'IA1-M' AND toInt(units) > 0 AND toFloat(developer_proceeds) > 0) AS life,",
+                    "  sumIf(-toInt(units), toInt(units) < 0) AS refund",
+                    "FROM appstoreconnect_sales_reports",
+                    "WHERE product_type_identifier IN ('IA1-M', 'IAY-M')",
+                    "  AND toDate(parseDateTimeBestEffort(report_date)) > last - 7"
+                  ]
+                },
+                {
+                  "type": "stat",
+                  "title": "Active subs",
+                  "span": 3,
+                  "cache_minutes": 60,
+                  "query": [
+                    "SELECT series[-1] AS active, series[-8] AS week_ago, series",
+                    "FROM (",
+                    "  SELECT arraySlice(groupArray(active), -14) AS series",
+                    "  FROM (",
+                    "    SELECT toDate(parseDateTimeBestEffort(report_date)) AS day, sum(toInt(active_standard_price_subscriptions)) AS active",
+                    "    FROM appstoreconnect_subscription_reports",
+                    "    WHERE toDate(parseDateTimeBestEffort(report_date)) >= today() - 30",
+                    "    GROUP BY day",
+                    "    ORDER BY day",
+                    "  )",
+                    ")"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "bars",
+              "title": "Proceeds USD · 7d vs prev",
+              "format": "money",
+              "cache_minutes": 60,
+              "query": [
+                "WITH (SELECT max(toDate(parseDateTimeBestEffort(report_date))) FROM appstoreconnect_sales_reports) AS last",
+                "SELECT",
+                "  currency_of_proceeds AS currency,",
+                "  coalesce(round(sumIf(usd, day > last - 7), 2), 0) AS week,",
+                "  coalesce(round(sumIf(usd, day <= last - 7), 2), 0) AS previous",
+                "FROM (",
+                "  SELECT currency_of_proceeds,",
+                "    assumeNotNull(toDate(parseDateTimeBestEffort(report_date))) AS day,",
+                "    convertCurrency(currency_of_proceeds, 'USD', toDecimal(toInt(units) * toFloat(developer_proceeds), 10), day) AS usd",
+                "  FROM appstoreconnect_sales_reports",
+                "  WHERE product_type_identifier IN ('IA1-M', 'IAY-M') AND currency_of_proceeds != ''",
+                ")",
+                "WHERE day > last - 14",
+                "GROUP BY currency",
+                "ORDER BY week DESC",
+                "LIMIT 3"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 128,
+          "title": "Website",
+          "meta_query": [
+            "SELECT concat('today ', toString(uniqIf(person_id, event = '$pageview')), ' visitors · ', toString(uniqIf(person_id, event = 'download_clicked')), ' download clicks')",
+            "FROM events",
+            "WHERE event IN ('$pageview', 'download_clicked') AND timestamp >= today()"
+          ],
+          "cells": [
+            {
+              "type": "chart",
+              "title": "Visitors / hour · 24h",
+              "style": "columns",
+              "span": 56,
+              "label_every": 6,
+              "highlight_last": true,
+              "query": [
+                "SELECT formatDateTime(toTimeZone(hour, '{timezone}'), '%H') AS hour, visitors",
+                "FROM (",
+                "  SELECT toStartOfHour(timestamp) AS hour, uniq(person_id) AS visitors",
+                "  FROM events",
+                "  WHERE event = '$pageview' AND timestamp >= toStartOfHour(now()) - INTERVAL 23 HOUR",
+                "  GROUP BY hour",
+                "  ORDER BY hour WITH FILL FROM toStartOfHour(now()) - INTERVAL 23 HOUR TO toStartOfHour(now()) + INTERVAL 1 HOUR STEP INTERVAL 1 HOUR",
+                ")"
+              ]
+            },
+            {
+              "type": "bars",
+              "title": "Top referrers · 7d",
+              "span": 44,
+              "query": [
+                "SELECT coalesce(nullIf(properties.$referring_domain, ''), '$direct') AS referrer, uniq(person_id) AS visitors",
+                "FROM events",
+                "WHERE event = '$pageview' AND timestamp >= today() - 6",
+                "GROUP BY referrer",
+                "ORDER BY visitors DESC",
+                "LIMIT 4"
+              ]
+            }
+          ]
+        },
+        {
+          "height": 112,
+          "title": "Google Search",
+          "meta_query": "SELECT concat('data through ', upper(formatDateTime(max(date), '%d %b'))) FROM googlesearchconsole_search_analytics_by_date",
+          "cells": [
+            {
+              "type": "chart",
+              "span": 62,
+              "cache_minutes": 60,
+              "query": [
+                "SELECT date AS day, sum(impressions) AS impr, sum(clicks) AS clicks",
+                "FROM googlesearchconsole_search_analytics_by_date",
+                "WHERE date >= today() - 30",
+                "GROUP BY day",
+                "ORDER BY day"
+              ]
+            },
+            {
+              "type": "stack",
+              "span": 38,
+              "items": [
+                {
+                  "type": "stat",
+                  "title": "Avg position",
+                  "style": "readout",
+                  "format": "decimal1",
+                  "lower_is_better": true,
+                  "cache_minutes": 60,
+                  "query": [
+                    "WITH (SELECT max(date) FROM googlesearchconsole_search_analytics_by_date) AS last",
+                    "SELECT",
+                    "  sumIf(position * impressions, date > last - 7) / nullIf(sumIf(impressions, date > last - 7), 0) AS avg_position,",
+                    "  sumIf(position * impressions, date <= last - 7) / nullIf(sumIf(impressions, date <= last - 7), 0) AS previous",
+                    "FROM googlesearchconsole_search_analytics_by_date",
+                    "WHERE date > last - 14"
+                  ]
+                },
+                {
+                  "type": "stat",
+                  "title": "CTR",
+                  "style": "readout",
+                  "format": "percent",
+                  "cache_minutes": 60,
+                  "query": [
+                    "WITH (SELECT max(date) FROM googlesearchconsole_search_analytics_by_date) AS last",
+                    "SELECT",
+                    "  100 * sumIf(clicks, date > last - 7) / nullIf(sumIf(impressions, date > last - 7), 0) AS ctr,",
+                    "  100 * sumIf(clicks, date <= last - 7) / nullIf(sumIf(impressions, date <= last - 7), 0) AS previous",
+                    "FROM googlesearchconsole_search_analytics_by_date",
+                    "WHERE date > last - 14"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -22,7 +22,8 @@ a key in USBNetwork's `authorized_keys` (the Makefile uses `~/.ssh/id_ed25519`; 
 `KEY=...` and `HOST=...` to change that).
 
 ```bash
-cp examples/web-analytics.json amber.json   # or examples/app-store.json (App Store Connect + Search Console sources)
+cp examples/web-analytics.json amber.json   # or examples/app-store.json (App Store Connect + Search Console sources),
+                                            # or examples/rotating.json (both, as two rotating screens)
 make deploy                                 # binary, KUAL menu, and amber.json if the device has none
 make start                                  # or KUAL → Amber → Start dashboard
 make autostart-on                           # start on every boot
@@ -42,7 +43,7 @@ of the Kindle's USB storage. `make autostart-off` removes the job.
 ## Web UI
 
 `http://<kindle-ip>:8080`, PIN from the screen. Edit `amber.json`, **Preview** renders
-the unsaved config with live data, **Save & apply** writes it and redraws the Kindle,
+the unsaved config with live data (◀ ▶ pick the screen when there are several), **Save & apply** writes it and redraws the Kindle,
 **Live screen** mirrors what the panel shows. The API key is never sent back to the
 browser.
 
@@ -56,12 +57,25 @@ port beyond it.
   "title": "MY SITE",
   "timezone": "Europe/Berlin",
   "refresh_minutes": 10,
+  "rotate_minutes": 5,
   "power": { "mode": "auto", "battery_refresh_minutes": 30 },
   "posthog": { "host": "https://eu.posthog.com", "project": "12345", "api_key": "phx_..." },
   "web": { "enabled": true, "port": 8080, "pin": "4821" },
-  "rows": [ ... ]
+  "rows": [ ... ]            // one screen; or, for several:
+  "screens": [ { "title": "MY SITE", "rows": [ ... ] }, { "title": "MY APP", "rows": [ ... ] } ]
 }
 ```
+
+### Screens
+
+`screens` holds several full layouts that take turns on the panel, `rotate_minutes`
+each (default 5). Use either `rows` for a single screen or `screens`, not both. A
+screen's `title` replaces the config title in the header, and dots next to it mark
+which screen is up. A tap on the touchscreen flips to the next one.
+
+Rotating and fetching are separate: every update queries the data of all screens at
+once, and switching screens only redraws from those results, without Wi-Fi. Data is
+still fetched every `refresh_minutes` (or `battery_refresh_minutes` on battery).
 
 ### Power
 
@@ -71,6 +85,10 @@ default) Amber updates every `refresh_minutes` while charging, and on battery it
 suspends between updates, waking on an RTC alarm every `battery_refresh_minutes`. The
 E Ink panel keeps the last frame without power, and the big time in the header is
 when that frame was fetched. `awake` never sleeps; `sleep` always does.
+
+With several screens Amber also wakes every `rotate_minutes` to draw the next screen
+from the cache and goes straight back to sleep, so the time a screen stays up is
+time asleep.
 
 While asleep the web UI is unreachable. Amber stays awake for three minutes after it
 starts, and for five minutes after the power button wakes it early.
@@ -109,6 +127,7 @@ never succeeded shows an error box in its widget.
 ```bash
 make test
 make demo CONFIG=examples/app-store.json      # renders build/preview.png with made-up data
+go run . -config examples/rotating.json -demo -png build/preview.png -screen 2   # one of several screens
 make preview                               # same with live data from amber.json
 go run . -config amber.json -demo          # web UI on :8080 without a Kindle
 make log                                   # tail the log on the device
