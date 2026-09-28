@@ -691,9 +691,13 @@ func (c *canvas) segments(cfg *Config, store *Store, w Widget, r image.Rectangle
 	} else {
 		c.text(c.f.tiny, bar.Min.X+8, bar.Min.Y+15, "all zero", ink3)
 	}
+	cols := 2
+	if len(segs) > 4 {
+		cols = 3
+	}
 	for i, s := range segs {
-		lx := r.Min.X + (i%2)*(r.Dx()/2)
-		ly := bar.Max.Y + 7 + (i/2)*16
+		lx := r.Min.X + (i%cols)*(r.Dx()/cols)
+		ly := bar.Max.Y + 7 + (i/cols)*16
 		if ly+11 > r.Max.Y {
 			break
 		}
