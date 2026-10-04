@@ -140,9 +140,10 @@ func (a *App) serveWeb() {
 				"at": stats.At, "took_ms": stats.Took.Milliseconds(), "ran": stats.Ran,
 				"cached": stats.Cached, "failed": stats.Failed, "last_error": stats.LastErr,
 			},
-			"battery": battery(),
-			"screen":  a.currentPage() + 1,
-			"screens": len(c.Pages()),
+			"battery":     battery(),
+			"orientation": c.Orientation,
+			"screen":      a.currentPage() + 1,
+			"screens":     len(c.Pages()),
 		})
 	}))
 

@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	screenW = 600
-	screenH = 800
+	// The panel itself is always 600 x 800; a landscape frame is drawn 800 x 600
+	// and rotated onto it.
+	panelW  = 600
+	panelH  = 800
 	margin  = 10
 	headerH = 72 // rows start here
 	footerH = 28 // and end this far above the bottom edge
@@ -38,7 +40,7 @@ const (
 )
 
 type faces struct {
-	tiny, small, smallB, mid, title, big font.Face
+	tiny, small, smallB, mid, large, title, big font.Face
 }
 
 func loadFaces() *faces {
@@ -56,6 +58,7 @@ func loadFaces() *faces {
 		small:  face(reg, 14),
 		smallB: face(bold, 14),
 		mid:    face(bold, 20),
+		large:  face(bold, 32),
 		title:  face(bold, 28),
 		big:    face(bold, 46),
 	}
@@ -65,7 +68,36 @@ func loadFaces() *faces {
 
 type canvas struct {
 	*image.Gray
-	f *faces
+	f    *faces
+	w, h int
+}
+
+// newCanvas makes a blank frame of the size the config asks for.
+func newCanvas(cfg *Config, f *faces) *canvas {
+	w, h := cfg.width(), cfg.height()
+	c := &canvas{Gray: image.NewGray(image.Rect(0, 0, w, h)), f: f, w: w, h: h}
+	c.fill(c.Rect, paper)
+	return c
+}
+
+// rotate turns a landscape frame onto the portrait panel. "landscape" is for a
+// Kindle turned to the left (counter-clockwise), so the frame turns the other way.
+func rotate(src *image.Gray, orientation string) *image.Gray {
+	if orientation != "landscape" && orientation != "landscape_right" {
+		return src
+	}
+	w, h := src.Bounds().Dx(), src.Bounds().Dy()
+	dst := image.NewGray(image.Rect(0, 0, h, w))
+	for y := 0; y < w; y++ {
+		for x := 0; x < h; x++ {
+			sx, sy := y, h-1-x // clockwise
+			if orientation == "landscape_right" {
+				sx, sy = w-1-y, x
+			}
+			dst.Pix[y*dst.Stride+x] = src.Pix[sy*src.Stride+sx]
+		}
+	}
+	return dst
 }
 
 func (c *canvas) fill(r image.Rectangle, v uint8) {

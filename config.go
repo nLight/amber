@@ -19,6 +19,7 @@ type Config struct {
 	Timezone       string   `json:"timezone,omitempty"`
 	RefreshMinutes int      `json:"refresh_minutes,omitempty"`
 	RotateMinutes  int      `json:"rotate_minutes,omitempty"`
+	Orientation    string   `json:"orientation,omitempty"`
 	Power          Power    `json:"power"`
 	PostHog        PostHog  `json:"posthog"`
 	Web            Web      `json:"web"`
@@ -153,6 +154,13 @@ func (c *Config) normalize() error {
 		c.PostHog.Host = "https://eu.posthog.com"
 	}
 	c.PostHog.Host = strings.TrimRight(c.PostHog.Host, "/")
+	switch c.Orientation {
+	case "":
+		c.Orientation = "portrait"
+	case "portrait", "landscape", "landscape_right":
+	default:
+		return fmt.Errorf("orientation: %q is not portrait, landscape or landscape_right", c.Orientation)
+	}
 	if c.Web.Port == 0 {
 		c.Web.Port = 8080
 	}
@@ -180,7 +188,7 @@ func (c *Config) normalize() error {
 		if len(c.Screens) > 0 {
 			where = fmt.Sprintf("screens[%d].rows", i)
 		}
-		if err := checkRows(c.pages[i].Rows, where); err != nil {
+		if err := checkRows(c.pages[i].Rows, where, c.height()-headerH-footerH); err != nil {
 			return err
 		}
 	}
@@ -189,7 +197,7 @@ func (c *Config) normalize() error {
 
 // checkRows validates one screen. The rows share their backing array with the
 // config, so the defaults checkWidget fills in stick.
-func checkRows(rows []Row, where string) error {
+func checkRows(rows []Row, where string, avail int) error {
 	if len(rows) == 0 {
 		return fmt.Errorf("%s: the screen needs at least one row", where)
 	}
@@ -208,7 +216,7 @@ func checkRows(rows []Row, where string) error {
 			}
 		}
 	}
-	if avail := screenH - headerH - footerH; total+rowGap*(len(rows)-1) > avail {
+	if total+rowGap*(len(rows)-1) > avail {
 		return fmt.Errorf("%s: heights plus gaps add up to %d px, the screen has %d", where, total+rowGap*(len(rows)-1), avail)
 	}
 	return nil
@@ -244,6 +252,26 @@ func checkWidget(w *Widget, where string) error {
 		return fmt.Errorf("%s: unknown format %q (count, decimal1, decimal2, money, percent)", where, w.Format)
 	}
 	return nil
+}
+
+// size is the frame Amber draws. In landscape it is the panel turned on its side;
+// the frame is rotated just before it is painted.
+func (c *Config) width() int {
+	if c.landscape() {
+		return panelH
+	}
+	return panelW
+}
+
+func (c *Config) height() int {
+	if c.landscape() {
+		return panelW
+	}
+	return panelH
+}
+
+func (c *Config) landscape() bool {
+	return c.Orientation == "landscape" || c.Orientation == "landscape_right"
 }
 
 func (c *Config) Refresh() time.Duration { return time.Duration(c.RefreshMinutes) * time.Minute }

@@ -41,7 +41,8 @@ type App struct {
 	mu    sync.Mutex
 	cfg   *Config
 	stats Stats
-	frame []byte // the last painted frame as PNG, for the web UI
+	frame []byte // the last frame upright, as PNG, for the web UI
+	panel []byte // the same frame turned the way the panel is painted
 	page  int    // the screen on the panel, an index into cfg.Pages()
 }
 
@@ -164,19 +165,36 @@ func (a *App) redraw(full bool) {
 	a.show(renderScreen(c, a.faces, a.store, stats, a.state(c, stats.At), a.currentPage()), stats, full)
 }
 
-func (a *App) show(img image.Image, stats Stats, full bool) {
-	var buf bytes.Buffer
-	enc := png.Encoder{CompressionLevel: png.BestSpeed}
-	if err := enc.Encode(&buf, img); err != nil {
+// show keeps the upright frame for the web UI and paints the panel with the frame
+// turned to match the configured orientation.
+func (a *App) show(img *image.Gray, stats Stats, full bool) {
+	upright, err := encodePNG(img)
+	if err != nil {
 		log.Printf("png: %v", err)
 		return
 	}
+	panel := upright
+	if o := a.config().Orientation; o != "portrait" {
+		if panel, err = encodePNG(rotate(img, o)); err != nil {
+			log.Printf("png: %v", err)
+			return
+		}
+	}
 	a.mu.Lock()
-	a.stats, a.frame = stats, buf.Bytes()
+	a.stats, a.frame, a.panel = stats, upright, panel
 	a.mu.Unlock()
-	if err := paint(a.fbink, buf.Bytes(), full); err != nil {
+	if err := paint(a.fbink, panel, full); err != nil {
 		log.Printf("paint: %v", err)
 	}
+}
+
+func encodePNG(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // ---------------------------------------------------------------- device
@@ -364,9 +382,11 @@ func main() {
 		st := a.state(cfg, stats.At)
 		st.battery = "87"
 		img := renderScreen(cfg, a.faces, a.store, stats, st, *screen-1)
-		var buf bytes.Buffer
-		png.Encode(&buf, img)
-		if err := os.WriteFile(*pngPath, buf.Bytes(), 0o644); err != nil {
+		frame, err := encodePNG(img)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile(*pngPath, frame, 0o644); err != nil {
 			log.Fatal(err)
 		}
 		if stats.Failed > 0 {
@@ -430,7 +450,7 @@ func main() {
 			// frame, so paint it once more after it has settled.
 			time.Sleep(8 * time.Second)
 			a.mu.Lock()
-			frame := a.frame
+			frame := a.panel
 			a.mu.Unlock()
 			paint(a.fbink, frame, true)
 		}

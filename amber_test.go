@@ -8,7 +8,7 @@ import (
 )
 
 func TestExampleConfigsAreValid(t *testing.T) {
-	for _, path := range []string{"examples/app-store.json", "examples/web-analytics.json", "examples/rotating.json"} {
+	for _, path := range []string{"examples/app-store.json", "examples/web-analytics.json", "examples/rotating.json", "examples/web-analytics-landscape.json"} {
 		if _, err := loadConfig(path); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}

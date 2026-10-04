@@ -75,10 +75,10 @@
 
   .screen { flex: 1; display: grid; place-items: center; padding: 18px; min-height: 0; }
   .bezel {
-    background: #1c1a17; padding: 26px 22px 46px; border-radius: 18px; width: 100%; max-width: 420px;
+    background: #1c1a17; padding: 26px 22px 46px; border-radius: 18px; width: 100%; max-width: var(--bezel-width, 420px);
     box-shadow: inset 0 0 0 1px #2c2924, 0 20px 60px rgba(0,0,0,.6);
   }
-  .bezel img { display: block; width: 100%; aspect-ratio: 600 / 800; background: #e9e6df; image-rendering: auto; filter: contrast(1.02); }
+  .bezel img { display: block; width: 100%; aspect-ratio: var(--panel, 600 / 800); background: #e9e6df; image-rendering: auto; filter: contrast(1.02); }
   .bezel .brand { text-align: center; color: #57524a; font-size: 10px; letter-spacing: .4em; margin-top: 14px; }
   .loading { opacity: .55; transition: opacity .2s; }
 
@@ -135,6 +135,8 @@ rotate_minutes    time per screen; on battery the Kindle sleeps in between
                   rotating only redraws: one fetch gets every screen's data
 rows[]            {height, title?, meta?, meta_query?, cells[]}
                   with a title: one framed panel; without: every cell is its own card
+orientation       portrait (default) | landscape (Kindle turned left) | landscape_right
+                  landscape frames are 800 x 600 and leave 500 px for rows
 power             {mode: auto | awake | sleep, battery_refresh_minutes}
                   auto: live while charging, sleeps between updates on battery
                   refresh_minutes / battery_refresh_minutes: how often data is fetched
@@ -240,6 +242,9 @@ function chips(state) {
     ["took", (s.took_ms / 1000).toFixed(1) + "s"],
   ];
   if (state.battery) items.push(["battery", state.battery + "%"]);
+  const landscape = (state.orientation || "portrait") !== "portrait";
+  document.querySelector(".bezel").style.setProperty("--panel", landscape ? "800 / 600" : "600 / 800");
+  document.querySelector(".bezel").style.setProperty("--bezel-width", landscape ? "560px" : "420px");
   if (state.screens > 1) items.push(["screen", `${state.screen}/${state.screens}`]);
   if (state.demo) items.push(["mode", "demo"]);
   $("chips").innerHTML = items.map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("")

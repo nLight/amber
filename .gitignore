@@ -1,4 +1,4 @@
 build/
-amber.json
+amber*.json
 .DS_Store
 local.mk

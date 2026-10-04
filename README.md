@@ -77,6 +77,14 @@ Rotating and fetching are separate: every update queries the data of all screens
 once, and switching screens only redraws from those results, without Wi-Fi. Data is
 still fetched every `refresh_minutes` (or `battery_refresh_minutes` on battery).
 
+### Orientation
+
+`"orientation": "landscape"` draws an 800 x 600 frame and turns it onto the panel for a
+Kindle stood on its side, turned to the left; `"landscape_right"` turns it the other way.
+Rows then have 500 px instead of 700, and a row fits four stat tiles comfortably — see
+[examples/web-analytics-landscape.json](examples/web-analytics-landscape.json). The web
+UI always shows the frame upright.
+
 ### Power
 
 A Kindle that never sleeps lasts about 17 hours on a charge; the radio and the SoC

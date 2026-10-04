@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/image/font"
 )
 
 type pair struct{ Cur, Prev float64 }
@@ -71,8 +73,7 @@ type screenState struct {
 func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenState, page int) *image.Gray {
 	pages := cfg.Pages()
 	page = (page%len(pages) + len(pages)) % len(pages)
-	c := &canvas{Gray: image.NewGray(image.Rect(0, 0, screenW, screenH)), f: f}
-	c.fill(c.Rect, paper)
+	c := newCanvas(cfg, f)
 	// The big time in the header is when the data was fetched: between updates the
 	// Kindle may be asleep, so a wall clock would be wrong most of the time.
 	now := time.Now().In(cfg.location)
@@ -83,7 +84,7 @@ func renderScreen(cfg *Config, f *faces, store *Store, stats Stats, st screenSta
 
 	y := headerH
 	for _, row := range pages[page].Rows {
-		r := image.Rect(margin, y, screenW-margin, y+row.Height)
+		r := image.Rect(margin, y, c.w-margin, y+row.Height)
 		if row.Title != "" {
 			meta := row.Meta
 			if res := store.Get(cfg, row.MetaQuery); res != nil && len(res.Rows) > 0 && len(res.Rows[0]) > 0 {
@@ -132,7 +133,7 @@ func splitSpans(r image.Rectangle, ws []Widget, gap int) []image.Rectangle {
 }
 
 func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState, page int) {
-	c.fill(image.Rect(0, 0, screenW, 60), black)
+	c.fill(image.Rect(0, 0, c.w, 60), black)
 	pages := cfg.Pages()
 	title := cfg.Title
 	if t := pages[page].Title; t != "" {
@@ -151,11 +152,11 @@ func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState, page in
 			}
 		}
 	}
-	tx := c.textRight(c.f.title, screenW-margin, 34, now.Format("15:04"), paper)
+	tx := c.textRight(c.f.title, c.w-margin, 34, now.Format("15:04"), paper)
 	c.textRight(c.f.tiny, tx-8, 33, "UPDATED", ink3)
 	c.text(c.f.tiny, margin+2, 52, upper(now.Format("Mon 02 Jan"))+"  ·  "+st.power, ink4)
 
-	right := screenW - margin
+	right := c.w - margin
 	if st.battery != "" {
 		lvl, _ := strconv.Atoi(st.battery)
 		body := image.Rect(right-26, 42, right-3, 54)
@@ -168,27 +169,30 @@ func renderHeader(c *canvas, cfg *Config, now time.Time, st screenState, page in
 	for i := 0; i < 4; i++ {
 		c.fill(image.Rect(right-(4-i)*5, 52-3-i*2, right-(4-i)*5+3, 52), ink4)
 	}
-	for x := 0; x < screenW; x += 4 {
+	for x := 0; x < c.w; x += 4 {
 		c.fill(image.Rect(x, 60, x+2, 63), black)
 	}
 }
 
+// cols is how many characters of the small font fit across the frame.
+func (c *canvas) cols() int { return (c.w - 2*margin) / textWidth(c.f.tiny, "0") }
+
 func renderFooter(c *canvas, cfg *Config, now time.Time, stats Stats, st screenState) {
-	y := screenH - 22
-	c.hline(0, screenW, y, black)
+	y := c.h - 22
+	c.hline(0, c.w, y, black)
 	switch {
 	case st.syncing:
-		c.fill(image.Rect(0, y, screenW, screenH), black)
+		c.fill(image.Rect(0, y, c.w, c.h), black)
 		c.text(c.f.tiny, margin, y+16, "> syncing with posthog ...", paper)
 		return
 	case st.notice != "":
-		c.fill(image.Rect(0, y, screenW, screenH), black)
-		c.text(c.f.tiny, margin, y+16, truncate("> "+st.notice, 82), paper)
+		c.fill(image.Rect(0, y, c.w, c.h), black)
+		c.text(c.f.tiny, margin, y+16, truncate("> "+st.notice, c.cols()), paper)
 		return
 	case stats.Failed > 0:
-		c.fill(image.Rect(0, y, screenW, screenH), black)
+		c.fill(image.Rect(0, y, c.w, c.h), black)
 		msg := fmt.Sprintf("!! %d/%d queries failed: %s", stats.Failed, stats.Ran, stats.LastErr)
-		c.text(c.f.tiny, margin, y+16, truncate(msg, 82), paper)
+		c.text(c.f.tiny, margin, y+16, truncate(msg, c.cols()), paper)
 		return
 	}
 	left := fmt.Sprintf("%dq", stats.Ran)
@@ -198,7 +202,7 @@ func renderFooter(c *canvas, cfg *Config, now time.Time, stats Stats, st screenS
 	left += fmt.Sprintf("  %.1fs  next %s", stats.Took.Seconds(), st.next.In(cfg.location).Format("15:04"))
 	c.text(c.f.tiny, margin, y+16, left, ink1)
 	if st.webURL != "" {
-		c.textRight(c.f.tiny, screenW-margin, y+16, st.webURL, black)
+		c.textRight(c.f.tiny, c.w-margin, y+16, st.webURL, black)
 	}
 }
 
@@ -353,10 +357,19 @@ func (c *canvas) statTile(cfg *Config, store *Store, w Widget, r image.Rectangle
 	if len(results) > 0 && results[0] != nil && results[0].Stale {
 		c.textRight(c.f.tiny, r.Max.X-10, r.Min.Y+19, "stale", ink2)
 	}
-	c.text(c.f.big, r.Min.X+12, r.Min.Y+70, fmtValue(p.Cur, w.Format), black)
+	value := fmtValue(p.Cur, w.Format)
+	// A tile can be narrow (four across a landscape screen), so the number shrinks
+	// until it clears the change badge instead of running under it.
+	room := r.Dx() - 22
+	if hasPrev {
+		room -= badgeWidth(c.f.smallB, p, w.Format, w.LowerIsBetter) + 8
+	}
+	c.text(c.fit(value, room, c.f.big, c.f.large, c.f.mid), r.Min.X+12, r.Min.Y+70, value, black)
 	if hasPrev {
 		c.badge(r.Max.X-10, r.Min.Y+34, p, w.Format, w.LowerIsBetter)
-		c.textRight(c.f.tiny, r.Max.X-10, r.Min.Y+72, "prev "+fmtValue(p.Prev, w.Format), ink2)
+		if prev := "prev " + fmtValue(p.Prev, w.Format); textWidth(c.f.tiny, prev) <= r.Dx()-24 {
+			c.textRight(c.f.tiny, r.Max.X-10, r.Min.Y+72, prev, ink2)
+		}
 	}
 	c.weekBars(image.Rect(r.Min.X+12, r.Min.Y+84, r.Max.X-10, r.Max.Y-10), s)
 }
@@ -390,7 +403,12 @@ func (c *canvas) statReadout(cfg *Config, store *Store, w Widget, r image.Rectan
 	if c.problem(image.Rect(r.Min.X, r.Min.Y+14, r.Max.X, r.Max.Y), results...) {
 		return
 	}
-	c.text(c.f.mid, r.Min.X, r.Min.Y+32, fmtValue(p.Cur, w.Format), black)
+	value := fmtValue(p.Cur, w.Format)
+	room := r.Dx()
+	if hasPrev {
+		room -= badgeWidth(c.f.smallB, p, w.Format, w.LowerIsBetter) + 8
+	}
+	c.text(c.fit(value, room, c.f.mid, c.f.smallB), r.Min.X, r.Min.Y+32, value, black)
 	if hasPrev {
 		c.badge(r.Max.X, r.Min.Y+14, p, w.Format, w.LowerIsBetter)
 	}
@@ -709,6 +727,21 @@ func (c *canvas) segments(cfg *Config, store *Store, w Widget, r image.Rectangle
 }
 
 // ---------------------------------------------------------------- small drawings
+
+// fit picks the first face that draws s within room, or the last one given.
+func (c *canvas) fit(s string, room int, faces ...font.Face) font.Face {
+	for _, f := range faces {
+		if textWidth(f, s) <= room {
+			return f
+		}
+	}
+	return faces[len(faces)-1]
+}
+
+func badgeWidth(f font.Face, p pair, format string, lowerIsBetter bool) int {
+	label, _, _ := delta(p, format, lowerIsBetter)
+	return textWidth(f, label) + 30
+}
 
 // badge draws a change pill ending at right: solid black for good news, outlined
 // for bad news, gray when nothing moved. Returns its left edge.
