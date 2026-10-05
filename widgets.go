@@ -679,13 +679,15 @@ func (c *canvas) segments(cfg *Config, store *Store, w Widget, r image.Rectangle
 			}
 		}
 	}
+	// One-pixel textures blur into flat gray on the panel, so neighbours differ
+	// in coarse stripes and dots, not in shades a step apart.
 	paints := []func(image.Rectangle){
 		func(r image.Rectangle) { c.fill(r, black) },
-		func(r image.Rectangle) { c.fill(r, ink2); c.checker(r, black) },
+		func(r image.Rectangle) { c.stripes(r, black, 4) },
 		func(r image.Rectangle) { c.fill(r, ink4) },
-		func(r image.Rectangle) { c.hatch(r, black, 3) },
-		func(r image.Rectangle) { c.checker(r, ink3) },
-		func(r image.Rectangle) { c.fill(r, ink3) },
+		func(r image.Rectangle) { c.hatch(r, black, 4) },
+		func(r image.Rectangle) { c.dots(r, black, 4) },
+		func(r image.Rectangle) { c.fill(r, ink2) },
 	}
 	bar := image.Rect(r.Min.X, r.Min.Y, r.Max.X, r.Min.Y+20)
 	c.stroke(bar, black, 1)
@@ -702,7 +704,9 @@ func (c *canvas) segments(cfg *Config, store *Store, w Widget, r image.Rectangle
 			}
 			if sw > 0 {
 				paints[i%len(paints)](image.Rect(x, bar.Min.Y+1, x+sw, bar.Max.Y-1))
-				c.vline(x+sw, bar.Min.Y, bar.Max.Y, paper)
+				if x+sw < bar.Max.X-1 {
+					c.fill(image.Rect(x+sw-1, bar.Min.Y+1, x+sw+1, bar.Max.Y-1), paper)
+				}
 			}
 			x += sw
 		}

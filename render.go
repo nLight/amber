@@ -143,13 +143,20 @@ func (c *canvas) hatch(r image.Rectangle, v uint8, step int) {
 	}
 }
 
-// checker fills r with a 50% dot pattern.
-func (c *canvas) checker(r image.Rectangle, v uint8) {
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			if (x+y)%2 == 0 {
-				c.set(x, y, v)
-			}
+// stripes fills r with vertical bars, half of every period wide.
+func (c *canvas) stripes(r image.Rectangle, v uint8, period int) {
+	for x := r.Min.X; x < r.Max.X; x++ {
+		if (x-r.Min.X)%period < period/2 {
+			c.vline(x, r.Min.Y, r.Max.Y, v)
+		}
+	}
+}
+
+// dots fills r with 2 x 2 dots on a grid of the given step.
+func (c *canvas) dots(r image.Rectangle, v uint8, step int) {
+	for y := r.Min.Y + 1; y < r.Max.Y-1; y += step {
+		for x := r.Min.X + 1; x < r.Max.X-1; x += step {
+			c.fill(image.Rect(x, y, x+2, y+2).Intersect(r), v)
 		}
 	}
 }
